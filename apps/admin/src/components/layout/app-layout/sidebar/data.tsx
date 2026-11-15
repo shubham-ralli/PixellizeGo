@@ -11,15 +11,15 @@ export const navItems: NavItem[] = [
     icon: <PageIcon className="size-6" />,
     key: "posts",
     subItems: [
-      { key: "allPosts", path: "/posts" },
-      { key: "categories", path: "/categories" },
-      { key: "tags", path: "/tags" },
+      { key: "allPosts", path: "/content/post" },
+      { key: "categories", path: "/taxonomy/category" },
+      { key: "tags", path: "/taxonomy/tag" },
     ],
   },
   {
     icon: <PageIcon className="size-6" />,
     key: "pages",
-    path: "/pages",
+    path: "/content/page",
   },
   {
     icon: <BoxIcon className="size-6" />,

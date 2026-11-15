@@ -1,11 +1,11 @@
 import {
   type Database,
-  categories,
   media,
-  postCategories,
-  postTags,
+  postTerms,
+  postTypes,
   posts,
-  tags,
+  taxonomies,
+  terms,
   users,
 } from "@pixellize/database";
 import { and, desc, eq, isNull } from "drizzle-orm";
@@ -60,6 +60,28 @@ export async function getPublishedBySlug(
   return getPost(db, row.id);
 }
 
+/**
+ * Resolve a published page by its full nested path (e.g. "/demo/page-1"), matching
+ * the canonical path exactly so only the right ancestor chain resolves. The last
+ * segment is the page's own slug (unique per type).
+ */
+export async function getPublishedByPath(db: Database, pathStr: string): Promise<PostDTO | undefined> {
+  const segments = pathStr.split("/").filter(Boolean);
+  if (segments.length === 0) return undefined;
+  const last = segments[segments.length - 1]!;
+  const canonical = `/${segments.join("/")}`;
+  const rows = await db
+    .select({ id: posts.id, status: posts.status })
+    .from(posts)
+    .where(and(eq(posts.slug, last), isNull(posts.deletedAt)));
+  for (const r of rows) {
+    if (r.status !== "published") continue;
+    const dto = await getPost(db, r.id);
+    if (dto && dto.path === canonical) return dto;
+  }
+  return undefined;
+}
+
 export async function listPublishedPosts(
   db: Database,
   opts: { limit?: number; offset?: number } = {},
@@ -82,54 +104,51 @@ export async function listPublishedPosts(
   return { items: rows.map(toListItem), total: count };
 }
 
-/** Published posts in a category or tag (by slug). */
-export async function listPublishedByTaxonomy(
+/** Published posts in a term, resolved by the taxonomy's public route (e.g. "category", "tag"). */
+export async function listPublishedByTerm(
   db: Database,
-  kind: "category" | "tag",
-  slug: string,
+  taxonomyRoute: string,
+  termSlug: string,
   opts: { limit?: number; offset?: number } = {},
-): Promise<{ items: PublicListItem[]; total: number; term: { name: string; slug: string } } | undefined> {
+): Promise<
+  { items: PublicListItem[]; total: number; term: { name: string; slug: string }; taxonomyLabel: string } | undefined
+> {
   const limit = Math.min(opts.limit ?? 10, 50);
   const offset = opts.offset ?? 0;
 
-  if (kind === "category") {
-    const term = (await db.select().from(categories).where(eq(categories.slug, slug)).limit(1))[0];
-    if (!term) return undefined;
-    const rows = await db
-      .select(listCols)
-      .from(posts)
-      .innerJoin(postCategories, eq(postCategories.postId, posts.id))
-      .leftJoin(users, eq(posts.authorId, users.id))
-      .leftJoin(media, eq(posts.featuredMediaId, media.id))
-      .where(and(eq(postCategories.categoryId, term.id), eq(posts.status, "published"), isNull(posts.deletedAt)))
-      .orderBy(desc(posts.publishedAt))
-      .limit(limit)
-      .offset(offset);
-    return { items: rows.map(toListItem), total: rows.length, term: { name: term.name, slug: term.slug } };
-  }
-
-  const term = (await db.select().from(tags).where(eq(tags.slug, slug)).limit(1))[0];
+  const tx = (await db.select().from(taxonomies).where(eq(taxonomies.route, taxonomyRoute)).limit(1))[0];
+  if (!tx) return undefined;
+  const term = (
+    await db.select().from(terms).where(and(eq(terms.taxonomyId, tx.id), eq(terms.slug, termSlug))).limit(1)
+  )[0];
   if (!term) return undefined;
+
   const rows = await db
     .select(listCols)
     .from(posts)
-    .innerJoin(postTags, eq(postTags.postId, posts.id))
+    .innerJoin(postTerms, eq(postTerms.postId, posts.id))
     .leftJoin(users, eq(posts.authorId, users.id))
     .leftJoin(media, eq(posts.featuredMediaId, media.id))
-    .where(and(eq(postTags.tagId, term.id), eq(posts.status, "published"), isNull(posts.deletedAt)))
+    .where(and(eq(postTerms.termId, term.id), eq(posts.status, "published"), isNull(posts.deletedAt)))
     .orderBy(desc(posts.publishedAt))
     .limit(limit)
     .offset(offset);
-  return { items: rows.map(toListItem), total: rows.length, term: { name: term.name, slug: term.slug } };
+  return {
+    items: rows.map(toListItem),
+    total: rows.length,
+    term: { name: term.name, slug: term.slug },
+    taxonomyLabel: tx.label,
+  };
 }
 
-/** All published post + page slugs for the sitemap. */
+/** All published content for the sitemap, with each type's public URL route prefix. */
 export async function listPublishedForSitemap(
   db: Database,
-): Promise<{ type: PostType; slug: string; updatedAt: string }[]> {
+): Promise<{ route: string; slug: string; updatedAt: string }[]> {
   const rows = await db
-    .select({ type: posts.type, slug: posts.slug, updatedAt: posts.updatedAt })
+    .select({ route: postTypes.route, slug: posts.slug, updatedAt: posts.updatedAt })
     .from(posts)
+    .leftJoin(postTypes, eq(posts.type, postTypes.slug))
     .where(and(eq(posts.status, "published"), isNull(posts.deletedAt)));
-  return rows.map((r) => ({ type: r.type as PostType, slug: r.slug, updatedAt: r.updatedAt.toISOString() }));
+  return rows.map((r) => ({ route: r.route ?? "", slug: r.slug, updatedAt: r.updatedAt.toISOString() }));
 }

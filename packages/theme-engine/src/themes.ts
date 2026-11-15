@@ -4,25 +4,51 @@ import { rootDir } from "@pixellize/core";
 import { type Database, type ThemeRow, themes } from "@pixellize/database";
 import { eq } from "drizzle-orm";
 
-export const THEMES_DIR = join(rootDir, "themes");
+export const THEMES_DIR = join(rootDir, "apps/frontend/src/themes");
 
 export interface ThemeManifest {
   slug: string;
   name: string;
   version: string;
   description?: string;
-  settingsSchema?: { key: string; label: string; type: "text" | "color"; default?: string }[];
+  author?: string;
+  themeUri?: string;
 }
 
-/** Read themes/<slug>/theme.json from disk. */
+/**
+ * Read theme metadata from the WordPress-style header comment at the top of
+ * themes/<slug>/style.css, e.g.:
+ *
+ *   /*
+ *   Theme Name: Default
+ *   Version: 1.0.0
+ *   Description: ...
+ *   Author: ...
+ *   *\/
+ */
 export function readManifest(slug: string): ThemeManifest | undefined {
-  const file = join(THEMES_DIR, slug, "theme.json");
+  const file = join(THEMES_DIR, slug, "style.css");
   if (!existsSync(file)) return undefined;
-  try {
-    return JSON.parse(readFileSync(file, "utf8")) as ThemeManifest;
-  } catch {
-    return undefined;
+  const css = readFileSync(file, "utf8");
+  const header = css.match(/\/\*([\s\S]*?)\*\//);
+  if (!header?.[1]) return undefined;
+
+  const fields: Record<string, string> = {};
+  for (const line of header[1].split("\n")) {
+    const m = line.match(/^\s*([A-Za-z][A-Za-z ]+?)\s*:\s*(.+?)\s*$/);
+    if (m?.[1] && m[2]) fields[m[1].toLowerCase()] = m[2];
   }
+
+  const name = fields["theme name"];
+  if (!name) return undefined; // not a theme stylesheet header
+  return {
+    slug,
+    name,
+    version: fields.version || "1.0.0",
+    description: fields.description,
+    author: fields.author,
+    themeUri: fields["theme uri"],
+  };
 }
 
 /** Register/refresh a theme row from its manifest (idempotent). */

@@ -85,6 +85,10 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
   const profileSchema = z.object({
     name: z.string().min(1).max(120).optional(),
+    firstName: z.string().max(120).nullable().optional(),
+    lastName: z.string().max(120).nullable().optional(),
+    bio: z.string().max(5000).nullable().optional(),
+    website: z.string().max(255).nullable().optional(),
     avatarUrl: z.string().max(512).nullable().optional(),
   });
 
@@ -94,12 +98,17 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: "validation_error", message: "Invalid input." });
     }
     await updateProfile(app.db, request.auth!.user.id, parsed.data);
+    const pick = <T>(v: T | undefined, fallback: T): T => (v !== undefined ? v : fallback);
     const u = request.auth!.user;
     return {
       user: {
         ...u,
         name: parsed.data.name ?? u.name,
-        avatarUrl: parsed.data.avatarUrl !== undefined ? parsed.data.avatarUrl : u.avatarUrl,
+        firstName: pick(parsed.data.firstName, u.firstName),
+        lastName: pick(parsed.data.lastName, u.lastName),
+        bio: pick(parsed.data.bio, u.bio),
+        website: pick(parsed.data.website, u.website),
+        avatarUrl: pick(parsed.data.avatarUrl, u.avatarUrl),
       },
     };
   });

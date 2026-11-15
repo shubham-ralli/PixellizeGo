@@ -22,6 +22,7 @@ export default function MediaPage() {
   const [params, setParams] = useSearchParams();
   const [alt, setAlt] = useState("");
   const [copied, setCopied] = useState(false);
+  const [checked, setChecked] = useState<Set<number>>(new Set());
   const fileInput = useRef<HTMLInputElement>(null);
 
   const selectedId = params.get("item");
@@ -32,6 +33,7 @@ export default function MediaPage() {
       .then((r) => {
         setItems(r.items);
         setTotal(r.total);
+        setChecked(new Set());
       })
       .catch((e) => setError(e.message));
   useEffect(() => void load(), []);
@@ -69,6 +71,26 @@ export default function MediaPage() {
     await deleteMedia(selected.id);
     close();
     await load();
+  };
+
+  const toggle = (id: number) =>
+    setChecked((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  const allChecked = items.length > 0 && checked.size === items.length;
+  const toggleAll = () => setChecked(allChecked ? new Set() : new Set(items.map((m) => m.id)));
+
+  const bulkDelete = async () => {
+    if (checked.size === 0 || !window.confirm(`Delete ${checked.size} file(s) permanently? This cannot be undone.`)) return;
+    setError(null);
+    try {
+      for (const id of checked) await deleteMedia(id);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Delete failed");
+    }
   };
 
   const copyUrl = async () => {
@@ -112,6 +134,20 @@ export default function MediaPage() {
         </div>
       )}
 
+      {items.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+            <input type="checkbox" checked={allChecked} onChange={toggleAll} /> Select all
+          </label>
+          {checked.size > 0 && (
+            <div className="flex items-center gap-2 rounded-lg border border-brand-200 bg-brand-50 px-3 py-1.5 text-sm dark:border-brand-500/30 dark:bg-brand-500/10">
+              <span className="text-gray-600 dark:text-gray-300">{checked.size} selected</span>
+              <Button size="xs" variant="destructive" onClick={bulkDelete}>Delete</Button>
+            </div>
+          )}
+        </div>
+      )}
+
       {items.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-gray-300 py-16 text-center text-gray-400 dark:border-gray-700">
           No media yet. Click Upload to add files.
@@ -119,20 +155,31 @@ export default function MediaPage() {
       ) : (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
           {items.map((m) => (
-            <button
+            <div
               key={m.id}
-              onClick={() => open(m)}
-              className="group overflow-hidden rounded-xl border border-gray-200 bg-white text-left hover:border-brand-500 dark:border-gray-800 dark:bg-white/3"
+              className={`group relative overflow-hidden rounded-xl border bg-white dark:bg-white/3 ${
+                checked.has(m.id) ? "border-brand-500 ring-2 ring-brand-500" : "border-gray-200 hover:border-brand-500 dark:border-gray-800"
+              }`}
             >
-              <div className="flex aspect-square items-center justify-center bg-gray-50 dark:bg-white/5">
-                {isImage(m) ? (
-                  <img src={m.url} alt={m.altText ?? m.originalName} className="h-full w-full object-cover" />
-                ) : (
-                  <span className="px-2 text-center text-xs text-gray-500">{m.mimeType}</span>
-                )}
-              </div>
-              <div className="truncate px-2 py-1.5 text-xs text-gray-600 dark:text-gray-400">{m.originalName}</div>
-            </button>
+              <input
+                type="checkbox"
+                checked={checked.has(m.id)}
+                onChange={() => toggle(m.id)}
+                onClick={(e) => e.stopPropagation()}
+                aria-label={`Select ${m.originalName}`}
+                className="absolute left-2 top-2 z-10 size-4 cursor-pointer"
+              />
+              <button onClick={() => open(m)} className="block w-full text-left">
+                <div className="flex aspect-square items-center justify-center bg-gray-50 dark:bg-white/5">
+                  {isImage(m) ? (
+                    <img src={m.url} alt={m.altText ?? m.originalName} className="h-full w-full object-cover" />
+                  ) : (
+                    <span className="px-2 text-center text-xs text-gray-500">{m.mimeType}</span>
+                  )}
+                </div>
+                <div className="truncate px-2 py-1.5 text-xs text-gray-600 dark:text-gray-400">{m.originalName}</div>
+              </button>
+            </div>
           ))}
         </div>
       )}

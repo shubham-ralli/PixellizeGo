@@ -60,17 +60,9 @@ export default function AppHeader() {
             )}
           </Button>
 
-          <Link to="/" className="xl:hidden">
-            <img
-              className="h-8 w-38.5 dark:hidden"
-              src={asset("/images/logo/logo.svg")}
-              alt="Logo"
-            />
-            <img
-              className="hidden h-8 w-38.5 dark:block"
-              src={asset("/images/logo/logo-dark.svg")}
-              alt="Logo"
-            />
+          <Link to="/" className="flex items-center gap-2 xl:hidden">
+            <img src={asset("/favicon.png")} alt="PixellizeGo" className="size-8" />
+            <span className="text-lg font-bold text-gray-800 dark:text-white/90">PixellizeGo</span>
           </Link>
 
           <Button

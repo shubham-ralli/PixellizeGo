@@ -36,7 +36,11 @@ export const users = mysqlTable(
   {
     id: int("id").autoincrement().primaryKey(),
     email: varchar("email", { length: 255 }).notNull(),
-    name: varchar("name", { length: 120 }).notNull(),
+    name: varchar("name", { length: 120 }).notNull(), // display / show name
+    firstName: varchar("first_name", { length: 120 }),
+    lastName: varchar("last_name", { length: 120 }),
+    bio: text("bio"),
+    website: varchar("website", { length: 255 }),
     passwordHash: varchar("password_hash", { length: 255 }).notNull(),
     avatarUrl: varchar("avatar_url", { length: 512 }),
     roleId: int("role_id")
@@ -104,7 +108,7 @@ export const posts = mysqlTable(
   "posts",
   {
     id: int("id").autoincrement().primaryKey(),
-    type: mysqlEnum("type", ["post", "page"]).default("post").notNull(),
+    type: varchar("type", { length: 60 }).default("post").notNull(), // post_types.slug
     title: varchar("title", { length: 255 }).notNull(),
     slug: varchar("slug", { length: 255 }).notNull(),
     excerpt: text("excerpt"),
@@ -113,6 +117,7 @@ export const posts = mysqlTable(
     publishedAt: datetime("published_at"),
     scheduledAt: datetime("scheduled_at"),
     featuredMediaId: int("featured_media_id").references(() => media.id, { onDelete: "set null" }),
+    parentId: int("parent_id"), // hierarchical pages: another post of the same type
     authorId: int("author_id")
       .notNull()
       .references(() => users.id),
@@ -159,54 +164,69 @@ export const revisions = mysqlTable(
   (t) => [index("revisions_post_idx").on(t.postId)],
 );
 
-export const categories = mysqlTable(
-  "categories",
+// Generic post-type registry: "post", "page", or any custom post type.
+// posts.type references post_types.slug. Add a new content type by inserting a
+// row here (or via the admin Post Types screen) — no schema change needed.
+export const postTypes = mysqlTable(
+  "post_types",
   {
     id: int("id").autoincrement().primaryKey(),
+    slug: varchar("slug", { length: 60 }).notNull(), // e.g. "post", "page", "product"
+    label: varchar("label", { length: 120 }).notNull(), // singular, e.g. "Post"
+    labelPlural: varchar("label_plural", { length: 120 }).notNull(), // "Posts"
+    route: varchar("route", { length: 120 }).notNull().default(""), // public URL prefix; "" = top-level (pages)
+    hierarchical: boolean("hierarchical").default(false).notNull(), // supports parent/child (like pages)
+    hasArchive: boolean("has_archive").default(false).notNull(),
+    builtIn: boolean("built_in").default(false).notNull(), // post/page — not user-deletable
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("post_types_slug_unq").on(t.slug)],
+);
+
+// Generic taxonomy system: a taxonomy ("category", "tag", or any future one)
+// groups terms; posts link to terms via post_terms. Add a new taxonomy by
+// inserting a row here — no schema change needed.
+export const taxonomies = mysqlTable(
+  "taxonomies",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    slug: varchar("slug", { length: 120 }).notNull(), // e.g. "category", "tag", "topic"
+    label: varchar("label", { length: 120 }).notNull(), // singular, e.g. "Category"
+    labelPlural: varchar("label_plural", { length: 120 }).notNull(), // "Categories"
+    route: varchar("route", { length: 120 }).notNull(), // public URL prefix, e.g. "category"
+    hierarchical: boolean("hierarchical").default(false).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("taxonomies_slug_unq").on(t.slug)],
+);
+
+export const terms = mysqlTable(
+  "terms",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    taxonomyId: int("taxonomy_id")
+      .notNull()
+      .references(() => taxonomies.id, { onDelete: "cascade" }),
     name: varchar("name", { length: 120 }).notNull(),
     slug: varchar("slug", { length: 140 }).notNull(),
     description: varchar("description", { length: 255 }),
     parentId: int("parent_id"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  (t) => [uniqueIndex("categories_slug_unq").on(t.slug)],
+  (t) => [uniqueIndex("terms_tax_slug_unq").on(t.taxonomyId, t.slug), index("terms_tax_idx").on(t.taxonomyId)],
 );
 
-export const tags = mysqlTable(
-  "tags",
-  {
-    id: int("id").autoincrement().primaryKey(),
-    name: varchar("name", { length: 120 }).notNull(),
-    slug: varchar("slug", { length: 140 }).notNull(),
-    createdAt: timestamp("created_at").defaultNow().notNull(),
-  },
-  (t) => [uniqueIndex("tags_slug_unq").on(t.slug)],
-);
-
-export const postCategories = mysqlTable(
-  "post_categories",
+export const postTerms = mysqlTable(
+  "post_terms",
   {
     postId: int("post_id")
       .notNull()
       .references(() => posts.id, { onDelete: "cascade" }),
-    categoryId: int("category_id")
+    termId: int("term_id")
       .notNull()
-      .references(() => categories.id, { onDelete: "cascade" }),
+      .references(() => terms.id, { onDelete: "cascade" }),
   },
-  (t) => [primaryKey({ columns: [t.postId, t.categoryId] })],
-);
-
-export const postTags = mysqlTable(
-  "post_tags",
-  {
-    postId: int("post_id")
-      .notNull()
-      .references(() => posts.id, { onDelete: "cascade" }),
-    tagId: int("tag_id")
-      .notNull()
-      .references(() => tags.id, { onDelete: "cascade" }),
-  },
-  (t) => [primaryKey({ columns: [t.postId, t.tagId] })],
+  (t) => [primaryKey({ columns: [t.postId, t.termId] }), index("post_terms_term_idx").on(t.termId)],
 );
 
 export const postsRelations = relations(posts, ({ one, many }) => ({
@@ -214,22 +234,21 @@ export const postsRelations = relations(posts, ({ one, many }) => ({
   featuredMedia: one(media, { fields: [posts.featuredMediaId], references: [media.id] }),
   meta: many(postMeta),
   revisions: many(revisions),
-  postCategories: many(postCategories),
-  postTags: many(postTags),
+  postTerms: many(postTerms),
 }));
 
 export const postMetaRelations = relations(postMeta, ({ one }) => ({
   post: one(posts, { fields: [postMeta.postId], references: [posts.id] }),
 }));
 
-export const postCategoriesRelations = relations(postCategories, ({ one }) => ({
-  post: one(posts, { fields: [postCategories.postId], references: [posts.id] }),
-  category: one(categories, { fields: [postCategories.categoryId], references: [categories.id] }),
+export const termsRelations = relations(terms, ({ one, many }) => ({
+  taxonomy: one(taxonomies, { fields: [terms.taxonomyId], references: [taxonomies.id] }),
+  postTerms: many(postTerms),
 }));
 
-export const postTagsRelations = relations(postTags, ({ one }) => ({
-  post: one(posts, { fields: [postTags.postId], references: [posts.id] }),
-  tag: one(tags, { fields: [postTags.tagId], references: [tags.id] }),
+export const postTermsRelations = relations(postTerms, ({ one }) => ({
+  post: one(posts, { fields: [postTerms.postId], references: [posts.id] }),
+  term: one(terms, { fields: [postTerms.termId], references: [terms.id] }),
 }));
 
 export type MediaRow = typeof media.$inferSelect;
@@ -237,8 +256,9 @@ export type PostRow = typeof posts.$inferSelect;
 export type NewPostRow = typeof posts.$inferInsert;
 export type PostMetaRow = typeof postMeta.$inferSelect;
 export type RevisionRow = typeof revisions.$inferSelect;
-export type CategoryRow = typeof categories.$inferSelect;
-export type TagRow = typeof tags.$inferSelect;
+export type PostTypeRow = typeof postTypes.$inferSelect;
+export type TaxonomyRow = typeof taxonomies.$inferSelect;
+export type TermRow = typeof terms.$inferSelect;
 
 /* ------------------------------------------------------------------ */
 /* Phase 3: website engine (themes, menus, settings, redirects)        */

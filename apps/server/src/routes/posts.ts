@@ -15,7 +15,7 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 
 const postBody = z.object({
-  type: z.enum(["post", "page"]).optional(),
+  type: z.string().min(1).max(60).optional(),
   title: z.string().min(1).max(255),
   slug: z.string().max(255).optional(),
   excerpt: z.string().nullable().optional(),
@@ -23,13 +23,13 @@ const postBody = z.object({
   status: z.enum(["draft", "published", "scheduled"]).optional(),
   scheduledAt: z.string().datetime().nullable().optional(),
   featuredMediaId: z.number().int().positive().nullable().optional(),
-  categoryIds: z.array(z.number().int().positive()).optional(),
-  tagIds: z.array(z.number().int().positive()).optional(),
+  parentId: z.number().int().positive().nullable().optional(),
+  termIds: z.array(z.number().int().positive()).optional(),
   meta: z.record(z.string()).optional(),
 });
 
 const listQuery = z.object({
-  type: z.enum(["post", "page"]).optional(),
+  type: z.string().min(1).max(60).optional(),
   status: z.enum(["draft", "published", "scheduled"]).optional(),
   search: z.string().optional(),
   trashed: z.enum(["0", "1"]).optional(),

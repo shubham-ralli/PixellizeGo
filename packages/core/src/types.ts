@@ -5,7 +5,11 @@ export type UserRole = "admin" | "editor" | "author";
 export interface PublicUser {
   id: number;
   email: string;
-  name: string;
+  name: string; // display / show name
+  firstName: string | null;
+  lastName: string | null;
+  bio: string | null;
+  website: string | null;
   role: UserRole;
   avatarUrl: string | null;
   createdAt: string;

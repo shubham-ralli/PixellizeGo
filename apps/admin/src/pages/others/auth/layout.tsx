@@ -13,16 +13,12 @@ export default function AuthLayout() {
             <GridShape />
 
             <div className="flex max-w-xs flex-col items-center">
-              <Link to="/" className="mb-4 block">
-                <img
-                  width={231}
-                  height={48}
-                  src={asset("/images/logo/auth-logo.svg")}
-                  alt="Logo"
-                />
+              <Link to="/" className="mb-4 flex items-center gap-3">
+                <img src={asset("/favicon.png")} alt="PixellizeGo" className="size-12" />
+                <span className="text-3xl font-bold text-white">PixellizeGo</span>
               </Link>
               <p className="text-center text-gray-400 dark:text-white/60">
-                Free and Open-Source Tailwind CSS Admin Dashboard Template
+                A modern self-hosted CMS
               </p>
             </div>
           </div>

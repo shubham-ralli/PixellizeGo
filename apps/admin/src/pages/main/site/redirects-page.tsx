@@ -69,7 +69,7 @@ export default function RedirectsPage() {
         </div>
       )}
 
-      <div className="mb-5 rounded-2xl border border-gray-200 p-5 dark:border-gray-800">
+      <div className="mb-5 w-full rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/3">
         <h3 className="mb-3 text-sm font-semibold text-gray-800 dark:text-white/90">Add redirect</h3>
         <div className="flex flex-wrap items-end gap-3">
           <div className="flex-1 min-w-48">

@@ -1,17 +1,16 @@
 import { type Column, DataTable } from "@/components/shared/data-table";
 import { PageMeta } from "@/components/shared/page-meta";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { useAuth } from "@/contexts";
 import {
   type AdminUser,
   type UserRole,
-  createUser,
   deleteUser,
   listUsers,
   updateUser,
 } from "@/lib/cms-api";
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router";
 
 const ROLES: UserRole[] = ["admin", "editor", "author"];
 const ROLE_STYLE: Record<UserRole, string> = {
@@ -31,11 +30,10 @@ function Avatar({ name, url }: { name: string; url: string | null }) {
 
 export default function UsersPage() {
   const { user: me } = useAuth();
+  const navigate = useNavigate();
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ name: "", email: "", password: "", role: "author" as UserRole });
 
   const load = () =>
     listUsers()
@@ -53,13 +51,6 @@ export default function UsersPage() {
       setError(e instanceof Error ? e.message : "Failed");
     }
   };
-
-  const add = () =>
-    run(async () => {
-      await createUser(form);
-      setForm({ name: "", email: "", password: "", role: "author" });
-      setAdding(false);
-    });
 
   const bulkDelete = async (ids: (string | number)[], clear: () => void) => {
     const targets = ids.map(Number).filter((id) => id !== me?.id);
@@ -128,16 +119,22 @@ export default function UsersPage() {
       key: "actions",
       header: "Actions",
       align: "right",
-      render: (u) =>
-        me?.id !== u.id ? (
-          <Button
-            size="xs"
-            variant="destructive"
-            onClick={() => window.confirm(`Delete ${u.name}?`) && run(() => deleteUser(u.id))}
-          >
-            Delete
+      render: (u) => (
+        <div className="flex justify-end gap-2">
+          <Button size="xs" variant="outline" onClick={() => navigate(`/users/${u.id}/edit`)}>
+            Edit
           </Button>
-        ) : null,
+          {me?.id !== u.id && (
+            <Button
+              size="xs"
+              variant="destructive"
+              onClick={() => window.confirm(`Delete ${u.name}?`) && run(() => deleteUser(u.id))}
+            >
+              Delete
+            </Button>
+          )}
+        </div>
+      ),
     },
   ];
 
@@ -146,31 +143,12 @@ export default function UsersPage() {
       <PageMeta title="Users | Pixellize CMS" description="Manage users" />
       <div className="mb-5 flex items-center justify-between">
         <h1 className="text-title-sm font-semibold text-gray-800 dark:text-white/90">Users</h1>
-        <Button onClick={() => setAdding((v) => !v)}>{adding ? "Close" : "+ Add User"}</Button>
+        <Button onClick={() => navigate("/users/new")}>+ Add User</Button>
       </div>
 
       {error && (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-400">
           {error}
-        </div>
-      )}
-
-      {adding && (
-        <div className="mb-5 rounded-2xl border border-gray-200 p-5 dark:border-gray-800">
-          <h3 className="mb-3 text-sm font-semibold text-gray-800 dark:text-white/90">New user</h3>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Input placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-            <Input placeholder="Email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-            <Input placeholder="Password (min 8)" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-            <select
-              value={form.role}
-              onChange={(e) => setForm({ ...form, role: e.target.value as UserRole })}
-              className="h-10 rounded-lg border border-gray-300 bg-transparent px-3 text-sm text-gray-700 dark:border-gray-700 dark:text-gray-300"
-            >
-              {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-            </select>
-          </div>
-          <div className="mt-3"><Button onClick={add}>Create user</Button></div>
         </div>
       )}
 

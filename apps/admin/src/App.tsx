@@ -1,10 +1,9 @@
 import AppLayout from "@/components/layout/app-layout";
 import CalendarPage from "@/pages/main/calendar";
-import CategoriesPage from "@/pages/main/content/categories-page";
 import ContentEditorPage from "@/pages/main/content/editor-page";
 import ContentListPage from "@/pages/main/content/list-page";
 import MediaPage from "@/pages/main/content/media-page";
-import TagsPage from "@/pages/main/content/tags-page";
+import TermsPage from "@/pages/main/content/terms-page";
 import CmsDashboardPage from "@/pages/main/dashboard/cms/page";
 import EcommercePage from "@/pages/main/dashboard/ecommerce";
 import MenusPage from "@/pages/main/site/menus-page";
@@ -13,6 +12,8 @@ import SeoPage from "@/pages/main/site/seo-page";
 import SettingsPage from "@/pages/main/site/settings-page";
 import ThemesPage from "@/pages/main/site/themes-page";
 import UsersPage from "@/pages/main/site/users-page";
+import UserCreatePage from "@/pages/main/site/user-create-page";
+import UserEditPage from "@/pages/main/site/user-edit-page";
 import FormElementsPage from "@/pages/main/forms/form-elements";
 import { BlankPage, Error404Page } from "@/pages/main/pages";
 import ProfilePage from "@/pages/main/profile";
@@ -40,27 +41,26 @@ export default function App() {
         <Route index element={<CmsDashboardPage />} />
         <Route path="/ecommerce" element={<EcommercePage />} />
 
-        {/* Content */}
-        <Route path="/posts" element={<ContentListPage type="post" />} />
-        <Route path="/posts/new" element={<ContentEditorPage type="post" />} />
-        <Route path="/posts/:id/edit" element={<ContentEditorPage type="post" />} />
-        <Route path="/pages" element={<ContentListPage type="page" />} />
-        <Route path="/pages/new" element={<ContentEditorPage type="page" />} />
-        <Route path="/pages/:id/edit" element={<ContentEditorPage type="page" />} />
+        {/* Content — generic for any post type (post, page, or custom) */}
+        <Route path="/content/:type" element={<ContentListPage />} />
+        <Route path="/content/:type/new" element={<ContentEditorPage />} />
+        <Route path="/content/:type/:id/edit" element={<ContentEditorPage />} />
         <Route path="/media" element={<MediaPage />} />
-        <Route path="/categories" element={<CategoriesPage />} />
-        <Route path="/tags" element={<TagsPage />} />
+        <Route path="/taxonomy/:tax" element={<TermsPage />} />
 
         {/* Appearance & settings */}
         <Route path="/menus" element={<MenusPage />} />
         <Route path="/themes" element={<ThemesPage />} />
         <Route path="/users" element={<UsersPage />} />
+        <Route path="/users/new" element={<UserCreatePage />} />
+        <Route path="/users/:id/edit" element={<UserEditPage />} />
         <Route path="/seo" element={<SeoPage />} />
         <Route path="/redirects" element={<RedirectsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
 
         {/* Others Page */}
         <Route path="/profile" element={<ProfilePage />} />
+        <Route path="/profile/edit" element={<ProfilePage />} />
         <Route path="/calendar" element={<CalendarPage />} />
         <Route path="/blank" element={<BlankPage />} />
 

@@ -1,3 +1,23 @@
+/** Replace %title% %sitename% %category% %sep% tokens with real values. */
+export function resolveTokens(
+  tpl: string,
+  vars: { title?: string; sitename?: string; category?: string; sep?: string },
+): string {
+  return tpl
+    .replace(/%title%/g, vars.title ?? "")
+    .replace(/%sitename%/g, vars.sitename ?? "")
+    .replace(/%category%/g, vars.category ?? "")
+    .replace(/%sep%/g, vars.sep ?? "—")
+    .replace(/\s{2,}/g, " ")
+    .trim()
+    // Drop a dangling separator left when a variable resolved to empty.
+    .replace(/^[\s|·–—-]+|[\s|·–—-]+$/g, "")
+    .trim();
+}
+
+/** Default SEO title template when a post/page has none. */
+export const DEFAULT_TITLE_TEMPLATE = "%title% %sep% %sitename%";
+
 export interface SeoMeta {
   title: string;
   description?: string;
@@ -29,16 +49,19 @@ export function buildMeta(input: {
   ogType?: string;
   separator?: string; // title separator (default "—")
   robots?: string; // site-wide default (e.g. "noindex,nofollow")
+  category?: string; // primary category (for %category% token)
 }): SeoMeta {
   const m = input.meta ?? {};
   const sep = input.separator || "—";
-  const title = m.metaTitle || (input.siteTitle ? `${input.pageTitle} ${sep} ${input.siteTitle}` : input.pageTitle);
+  const vars = { title: input.pageTitle, sitename: input.siteTitle, category: input.category, sep };
+  const defaultTpl = input.siteTitle ? DEFAULT_TITLE_TEMPLATE : "%title%";
+  const title = resolveTokens(m.metaTitle || defaultTpl, vars);
   const description = m.metaDescription || input.description || input.tagline;
   return {
     title,
     description,
     canonical: m.canonicalUrl || input.canonical,
-    ogTitle: m.ogTitle || m.metaTitle || input.pageTitle,
+    ogTitle: resolveTokens(m.ogTitle || m.metaTitle || "%title%", vars),
     ogDescription: m.ogDescription || description,
     ogImage: m.ogImage || input.image,
     ogType: input.ogType ?? "website",

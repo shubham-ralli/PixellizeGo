@@ -1,45 +1,42 @@
 import { MediaPicker } from "@/components/shared/media-picker";
 import { PageMeta } from "@/components/shared/page-meta";
 import { RichTextEditor } from "@/components/shared/rich-text-editor";
+import { SeoPanel } from "@/components/shared/seo-panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  absoluteUrl,
   autosavePost,
   createPost,
+  createTerm,
   getPost,
-  listCategories,
-  listTags,
-  type Category,
+  listPostTypes,
+  listPosts,
+  listTaxonomies,
+  listTerms,
   type PostInput,
+  type PostListItem,
   type PostStatus,
-  type PostType,
-  type Tag,
-  publicUrl,
+  type PostTypeDef,
+  type Taxonomy,
+  type Term,
   updatePost,
-  uploadMedia,
 } from "@/lib/cms-api";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-
-const META_FIELDS: { key: string; label: string }[] = [
-  { key: "metaTitle", label: "Meta Title" },
-  { key: "metaDescription", label: "Meta Description" },
-  { key: "canonicalUrl", label: "Canonical URL" },
-  { key: "ogTitle", label: "OG Title" },
-  { key: "ogDescription", label: "OG Description" },
-  { key: "ogImage", label: "OG Image URL" },
-];
 
 function Label({ children }: { children: React.ReactNode }) {
   return <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">{children}</label>;
 }
 
-export default function ContentEditorPage({ type }: { type: PostType }) {
-  const { id } = useParams();
+export default function ContentEditorPage() {
+  const { type = "post", id } = useParams();
   const navigate = useNavigate();
   const isEdit = Boolean(id);
-  const typeLabel = type === "post" ? "Post" : "Page";
-  const base = type === "post" ? "/posts" : "/pages";
+  const [postType, setPostType] = useState<PostTypeDef | null>(null);
+  const typeLabel = postType?.label ?? "Item";
+  const route = postType?.route ?? "";
+  const base = `/content/${type}`;
 
   const [title, setTitle] = useState("");
   const [slug, setSlug] = useState("");
@@ -48,11 +45,13 @@ export default function ContentEditorPage({ type }: { type: PostType }) {
   const [status, setStatus] = useState<PostStatus>("draft");
   const [scheduledAt, setScheduledAt] = useState("");
   const [featured, setFeatured] = useState<{ id: number; url: string } | null>(null);
-  const [categoryIds, setCategoryIds] = useState<number[]>([]);
-  const [tagIds, setTagIds] = useState<number[]>([]);
+  const [termIds, setTermIds] = useState<number[]>([]);
   const [meta, setMeta] = useState<Record<string, string>>({});
-  const [allCategories, setAllCategories] = useState<Category[]>([]);
-  const [allTags, setAllTags] = useState<Tag[]>([]);
+  const [taxonomies, setTaxonomies] = useState<Taxonomy[]>([]);
+  const [termsByTax, setTermsByTax] = useState<Record<string, Term[]>>({});
+  const [newTermName, setNewTermName] = useState<Record<string, string>>({});
+  const [parentId, setParentId] = useState<number | null>(null);
+  const [parentOptions, setParentOptions] = useState<PostListItem[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autoStatus, setAutoStatus] = useState("");
@@ -60,8 +59,24 @@ export default function ContentEditorPage({ type }: { type: PostType }) {
   const dirty = useRef(false);
 
   useEffect(() => {
-    void listCategories().then(setAllCategories);
-    void listTags().then(setAllTags);
+    void listPostTypes().then((types) => {
+      const pt = types.find((t) => t.slug === type) ?? null;
+      setPostType(pt);
+      // Hierarchical types (pages) can pick a parent from the same type's items.
+      if (pt?.hierarchical) {
+        void listPosts({ type, limit: 100 }).then((r) => setParentOptions(r.items));
+      } else {
+        setParentOptions([]);
+      }
+    });
+  }, [type]);
+
+  useEffect(() => {
+    void listTaxonomies().then(async (txs) => {
+      setTaxonomies(txs);
+      const entries = await Promise.all(txs.map(async (t) => [t.slug, await listTerms(t.slug)] as const));
+      setTermsByTax(Object.fromEntries(entries));
+    });
   }, []);
 
   useEffect(() => {
@@ -74,8 +89,8 @@ export default function ContentEditorPage({ type }: { type: PostType }) {
       setStatus(p.status);
       setScheduledAt(p.scheduledAt ? p.scheduledAt.slice(0, 16) : "");
       setFeatured(p.featuredMedia ? { id: p.featuredMedia.id, url: p.featuredMedia.url } : null);
-      setCategoryIds(p.categories.map((c) => c.id));
-      setTagIds(p.tags.map((t) => t.id));
+      setTermIds(p.terms.map((t) => t.id));
+      setParentId(p.parentId);
       setMeta(p.meta ?? {});
     });
   }, [id]);
@@ -90,12 +105,22 @@ export default function ContentEditorPage({ type }: { type: PostType }) {
       status: overrideStatus ?? status,
       scheduledAt: (overrideStatus ?? status) === "scheduled" && scheduledAt ? new Date(scheduledAt).toISOString() : null,
       featuredMediaId: featured?.id ?? null,
-      categoryIds,
-      tagIds,
+      parentId: postType?.hierarchical ? parentId : null,
+      termIds,
       meta,
     }),
-    [type, title, slug, excerpt, content, status, scheduledAt, featured, categoryIds, tagIds, meta],
+    [type, title, slug, excerpt, content, status, scheduledAt, featured, parentId, postType, termIds, meta],
   );
+
+  // Primary category name for the SEO %category% token.
+  const categoryName = (termsByTax.category ?? []).find((t) => termIds.includes(t.id))?.name;
+
+  // Live public URL. For hierarchical pages the prefix is the parent's full path
+  // (e.g. "/demo"); otherwise the post type's route ("/blog", or "" for pages).
+  const parentPath =
+    postType?.hierarchical && parentId ? parentOptions.find((p) => p.id === parentId)?.path : undefined;
+  const urlPrefix = parentPath ?? (route ? `/${route}` : "");
+  const computedPath = `${urlPrefix}/${slug || "untitled"}`;
 
   const save = async (overrideStatus?: PostStatus) => {
     setSaving(true);
@@ -139,19 +164,33 @@ export default function ContentEditorPage({ type }: { type: PostType }) {
     setAutoStatus("Unsaved changes");
   };
 
-  const onUploadFeatured = async (file: File) => {
-    try {
-      const m = await uploadMedia(file);
-      setFeatured({ id: m.id, url: m.url });
-      markDirty();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed");
-    }
+  const toggleTerm = (termId: number) => {
+    setTermIds((prev) => (prev.includes(termId) ? prev.filter((x) => x !== termId) : [...prev, termId]));
+    markDirty();
   };
 
-  const toggle = (arr: number[], setArr: (v: number[]) => void, id: number) => {
-    setArr(arr.includes(id) ? arr.filter((x) => x !== id) : [...arr, id]);
+  const selectTerm = (termId: number) => {
+    setTermIds((prev) => (prev.includes(termId) ? prev : [...prev, termId]));
     markDirty();
+  };
+
+  // Add a term from the editor: reuse it if it already exists, otherwise create it.
+  const addNewTerm = async (taxSlug: string) => {
+    const name = (newTermName[taxSlug] ?? "").trim();
+    if (!name) return;
+    const existing = (termsByTax[taxSlug] ?? []).find((t) => t.name.toLowerCase() === name.toLowerCase());
+    setNewTermName((p) => ({ ...p, [taxSlug]: "" }));
+    if (existing) {
+      selectTerm(existing.id);
+      return;
+    }
+    try {
+      const term = await createTerm(taxSlug, { name });
+      setTermsByTax((prev) => ({ ...prev, [taxSlug]: [...(prev[taxSlug] ?? []), term] }));
+      selectTerm(term.id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not add term");
+    }
   };
 
   return (
@@ -172,7 +211,7 @@ export default function ContentEditorPage({ type }: { type: PostType }) {
           {isEdit && slug && (
             <Button
               variant="outline"
-              onClick={() => window.open(publicUrl(type, slug), "_blank", "noopener")}
+              onClick={() => window.open(absoluteUrl(computedPath), "_blank", "noopener")}
             >
               Preview
             </Button>
@@ -181,7 +220,7 @@ export default function ContentEditorPage({ type }: { type: PostType }) {
             Save Draft
           </Button>
           <Button disabled={saving} onClick={() => save("published")}>
-            {saving ? "Saving…" : "Publish"}
+            {saving ? "Saving…" : status === "published" ? "Update" : "Publish"}
           </Button>
         </div>
       </div>
@@ -195,54 +234,49 @@ export default function ContentEditorPage({ type }: { type: PostType }) {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Main column */}
         <div className="space-y-5 lg:col-span-2">
-          <div>
-            <Label>Title</Label>
-            <Input
-              value={title}
-              onChange={(e) => {
-                setTitle(e.target.value);
-                markDirty();
-              }}
-              placeholder={`${typeLabel} title`}
-            />
-          </div>
-          <div>
-            <Label>Slug</Label>
-            <Input value={slug} onChange={(e) => { setSlug(e.target.value); markDirty(); }} placeholder="auto-generated" />
-          </div>
-          <div>
-            <Label>Content</Label>
-            <RichTextEditor value={content} onChange={(html) => { setContent(html); markDirty(); }} />
-          </div>
-          <div>
-            <Label>Excerpt</Label>
-            <textarea
-              value={excerpt}
-              onChange={(e) => { setExcerpt(e.target.value); markDirty(); }}
-              rows={3}
-              className="w-full rounded-lg border border-gray-300 bg-transparent px-3 py-2 text-sm text-gray-700 dark:border-gray-700 dark:text-gray-300"
-            />
-          </div>
-
-          <div className="rounded-2xl border border-gray-200 p-5 dark:border-gray-800">
-            <h3 className="mb-3 text-sm font-semibold text-gray-800 dark:text-white/90">SEO & Open Graph</h3>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {META_FIELDS.map((f) => (
-                <div key={f.key}>
-                  <Label>{f.label}</Label>
-                  <Input
-                    value={meta[f.key] ?? ""}
-                    onChange={(e) => { setMeta({ ...meta, [f.key]: e.target.value }); markDirty(); }}
-                  />
-                </div>
-              ))}
+          <div className="space-y-5 rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/3">
+            <div>
+              <Label>Title</Label>
+              <Input
+                value={title}
+                onChange={(e) => {
+                  setTitle(e.target.value);
+                  markDirty();
+                }}
+                placeholder={`${typeLabel} title`}
+              />
+            </div>
+            <div>
+              <Label>Content</Label>
+              <RichTextEditor value={content} onChange={(html) => { setContent(html); markDirty(); }} />
+            </div>
+            <div>
+              <Label>Excerpt</Label>
+              <textarea
+                value={excerpt}
+                onChange={(e) => { setExcerpt(e.target.value); markDirty(); }}
+                rows={3}
+                className="w-full rounded-lg border border-gray-300 bg-transparent px-3 py-2 text-sm text-gray-700 dark:border-gray-700 dark:text-gray-300"
+              />
             </div>
           </div>
+
+          <SeoPanel
+            postTitle={title}
+            slug={slug}
+            excerpt={excerpt}
+            urlPrefix={urlPrefix}
+            featuredUrl={featured?.url ?? null}
+            categoryName={categoryName}
+            meta={meta}
+            onChange={(k, v) => { setMeta({ ...meta, [k]: v }); markDirty(); }}
+            onSlugChange={(v) => { setSlug(v); markDirty(); }}
+          />
         </div>
 
         {/* Sidebar column */}
         <div className="space-y-5">
-          <div className="rounded-2xl border border-gray-200 p-5 dark:border-gray-800">
+          <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/3">
             <Label>Status</Label>
             <select
               value={status}
@@ -265,7 +299,28 @@ export default function ContentEditorPage({ type }: { type: PostType }) {
             )}
           </div>
 
-          <div className="rounded-2xl border border-gray-200 p-5 dark:border-gray-800">
+          {postType?.hierarchical && (
+            <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/3">
+              <Label>Parent</Label>
+              <select
+                value={parentId ?? ""}
+                onChange={(e) => { setParentId(e.target.value ? Number(e.target.value) : null); markDirty(); }}
+                className="h-10 w-full rounded-lg border border-gray-300 bg-transparent px-3 text-sm text-gray-700 dark:border-gray-700 dark:text-gray-300"
+              >
+                <option value="">— None (top level) —</option>
+                {parentOptions
+                  .filter((p) => String(p.id) !== id)
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.title}
+                    </option>
+                  ))}
+              </select>
+              <p className="mt-1 text-xs text-gray-400">URL becomes parent/this-slug.</p>
+            </div>
+          )}
+
+          <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/3">
             <Label>Featured Image</Label>
             {featured ? (
               <div className="space-y-2">
@@ -280,52 +335,98 @@ export default function ContentEditorPage({ type }: { type: PostType }) {
                 </div>
               </div>
             ) : (
-              <div className="space-y-2">
-                <Button size="sm" variant="outline" className="w-full" onClick={() => setPickerOpen(true)}>
-                  Choose from library
-                </Button>
-                <label className="flex cursor-pointer items-center justify-center rounded-lg border border-dashed border-gray-300 py-4 text-sm text-gray-500 dark:border-gray-700">
-                  or upload new
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => e.target.files?.[0] && onUploadFeatured(e.target.files[0])}
-                  />
-                </label>
-              </div>
+              <Button size="sm" variant="outline" className="w-full" onClick={() => setPickerOpen(true)}>
+                Choose from library
+              </Button>
             )}
           </div>
 
-          {type === "post" && (
-            <>
-              <div className="rounded-2xl border border-gray-200 p-5 dark:border-gray-800">
-                <Label>Categories</Label>
-                <div className="max-h-40 space-y-1.5 overflow-auto">
-                  {allCategories.length === 0 && <p className="text-xs text-gray-400">No categories yet.</p>}
-                  {allCategories.map((c) => (
-                    <label key={c.id} className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-                      <input type="checkbox" checked={categoryIds.includes(c.id)} onChange={() => toggle(categoryIds, setCategoryIds, c.id)} />
-                      {c.name}
-                    </label>
-                  ))}
+          {type !== "page" &&
+            taxonomies.map((tx) => {
+              const terms = termsByTax[tx.slug] ?? [];
+              const addField = (
+                <div className="mt-3 flex gap-2">
+                  <Input
+                    value={newTermName[tx.slug] ?? ""}
+                    onChange={(e) => setNewTermName((p) => ({ ...p, [tx.slug]: e.target.value }))}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || (!tx.hierarchical && e.key === ",")) {
+                        e.preventDefault();
+                        void addNewTerm(tx.slug);
+                      }
+                    }}
+                    placeholder={`Add ${tx.label.toLowerCase()}`}
+                    className="h-9 text-sm"
+                  />
+                  <Button size="xs" variant="outline" onClick={() => void addNewTerm(tx.slug)}>
+                    Add
+                  </Button>
                 </div>
-              </div>
+              );
 
-              <div className="rounded-2xl border border-gray-200 p-5 dark:border-gray-800">
-                <Label>Tags</Label>
-                <div className="max-h-40 space-y-1.5 overflow-auto">
-                  {allTags.length === 0 && <p className="text-xs text-gray-400">No tags yet.</p>}
-                  {allTags.map((t) => (
-                    <label key={t.id} className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-                      <input type="checkbox" checked={tagIds.includes(t.id)} onChange={() => toggle(tagIds, setTagIds, t.id)} />
-                      {t.name}
-                    </label>
-                  ))}
+              return (
+                <div key={tx.id} className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/3">
+                  <Label>{tx.labelPlural}</Label>
+
+                  {tx.hierarchical ? (
+                    // Categories: checkbox list + inline add.
+                    <>
+                      <div className="max-h-40 space-y-1.5 overflow-auto">
+                        {terms.length === 0 && (
+                          <p className="text-xs text-gray-400">No {tx.labelPlural.toLowerCase()} yet.</p>
+                        )}
+                        {terms.map((t) => (
+                          <label key={t.id} className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                            <input type="checkbox" checked={termIds.includes(t.id)} onChange={() => toggleTerm(t.id)} />
+                            {t.name}
+                          </label>
+                        ))}
+                      </div>
+                      {addField}
+                    </>
+                  ) : (
+                    // Tags: chips of selected + type-to-add (creates if new) + quick-pick suggestions.
+                    <>
+                      <div className="flex flex-wrap gap-1.5">
+                        {terms
+                          .filter((t) => termIds.includes(t.id))
+                          .map((t) => (
+                            <span
+                              key={t.id}
+                              className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2.5 py-1 text-xs text-brand-600 dark:bg-brand-500/10 dark:text-brand-400"
+                            >
+                              {t.name}
+                              <button type="button" className="text-brand-400 hover:text-brand-600" onClick={() => toggleTerm(t.id)}>
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        {termIds.filter((id) => terms.some((t) => t.id === id)).length === 0 && (
+                          <p className="text-xs text-gray-400">No {tx.labelPlural.toLowerCase()} yet.</p>
+                        )}
+                      </div>
+                      {addField}
+                      {terms.filter((t) => !termIds.includes(t.id)).length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {terms
+                            .filter((t) => !termIds.includes(t.id))
+                            .map((t) => (
+                              <button
+                                key={t.id}
+                                type="button"
+                                onClick={() => selectTerm(t.id)}
+                                className="rounded-full border border-gray-200 px-2.5 py-1 text-xs text-gray-500 hover:border-brand-400 hover:text-brand-500 dark:border-gray-700"
+                              >
+                                + {t.name}
+                              </button>
+                            ))}
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
-              </div>
-            </>
-          )}
+              );
+            })}
         </div>
       </div>
 

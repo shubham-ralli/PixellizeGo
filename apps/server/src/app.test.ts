@@ -1,7 +1,7 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createMedia, deleteMedia } from "@pixellize/media";
-import { type Database, createDatabase, roles } from "@pixellize/database";
+import { type Database, createDatabase, postTypes, roles, taxonomies } from "@pixellize/database";
 import { migrate } from "drizzle-orm/mysql2/migrator";
 import mysql from "mysql2/promise";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -51,13 +51,13 @@ beforeAll(async () => {
 
   await pool.query("SET FOREIGN_KEY_CHECKS=0");
   for (const t of [
-    "post_tags",
-    "post_categories",
+    "post_terms",
     "post_meta",
     "revisions",
     "posts",
-    "tags",
-    "categories",
+    "terms",
+    "taxonomies",
+    "post_types",
     "media",
     "sessions",
     "users",
@@ -72,6 +72,14 @@ beforeAll(async () => {
   ]) {
     await db.insert(roles).values(r).onDuplicateKeyUpdate({ set: { description: r.description } });
   }
+  await db.insert(postTypes).values([
+    { slug: "post", label: "Post", labelPlural: "Posts", route: "blog", hierarchical: false, hasArchive: false, builtIn: true },
+    { slug: "page", label: "Page", labelPlural: "Pages", route: "", hierarchical: true, hasArchive: false, builtIn: true },
+  ]);
+  await db.insert(taxonomies).values([
+    { slug: "category", label: "Category", labelPlural: "Categories", route: "category", hierarchical: true },
+    { slug: "tag", label: "Tag", labelPlural: "Tags", route: "tag", hierarchical: false },
+  ]);
 
   app = await buildApp({ db, logger: false });
   await app.ready();
@@ -137,33 +145,33 @@ describe("Phase 2 content API", () => {
     expect(res.statusCode).toBe(401);
   });
 
-  let categoryId = 0;
-  let tagId = 0;
+  let categoryTermId = 0;
+  let tagTermId = 0;
 
-  it("creates a category and a tag with generated slugs", async () => {
+  it("creates terms in the category and tag taxonomies with generated slugs", async () => {
     const cat = await app.inject({
       method: "POST",
-      url: "/api/categories",
+      url: "/api/taxonomies/category/terms",
       headers: { cookie },
       payload: { name: "News & Updates" },
     });
     expect(cat.statusCode).toBe(201);
     expect(cat.json().slug).toBe("news-updates");
-    categoryId = cat.json().id;
+    categoryTermId = cat.json().id;
 
     const tag = await app.inject({
       method: "POST",
-      url: "/api/tags",
+      url: "/api/taxonomies/tag/terms",
       headers: { cookie },
       payload: { name: "Release" },
     });
     expect(tag.statusCode).toBe(201);
-    tagId = tag.json().id;
+    tagTermId = tag.json().id;
   });
 
   let postId = 0;
 
-  it("creates a draft post with taxonomy + SEO meta", async () => {
+  it("creates a draft post with taxonomy terms + SEO meta", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/posts",
@@ -173,8 +181,7 @@ describe("Phase 2 content API", () => {
         title: "Hello World",
         content: "<p>First post</p>",
         status: "draft",
-        categoryIds: [categoryId],
-        tagIds: [tagId],
+        termIds: [categoryTermId, tagTermId],
         meta: { metaTitle: "Hello SEO", metaDescription: "desc" },
       },
     });
@@ -182,8 +189,9 @@ describe("Phase 2 content API", () => {
     const dto = res.json();
     postId = dto.id;
     expect(dto.slug).toBe("hello-world");
-    expect(dto.categories).toHaveLength(1);
-    expect(dto.tags).toHaveLength(1);
+    expect(dto.terms).toHaveLength(2);
+    expect(dto.terms.some((t: { taxonomy: string }) => t.taxonomy === "category")).toBe(true);
+    expect(dto.terms.some((t: { taxonomy: string }) => t.taxonomy === "tag")).toBe(true);
     expect(dto.meta.metaTitle).toBe("Hello SEO");
     expect(dto.status).toBe("draft");
     expect(dto.publishedAt).toBeNull();
@@ -292,6 +300,148 @@ describe("Phase 2 content API", () => {
     expect(bulk.json().affected).toBe(1);
     const trashed = await app.inject({ method: "GET", url: "/api/posts?type=post&trashed=1", headers: { cookie } });
     expect(trashed.json().items.some((p: { id: number }) => p.id === id)).toBe(true);
+  });
+});
+
+describe("Custom post types", () => {
+  let cookie = "";
+  let typeId = 0;
+  let cptPostId = 0;
+
+  beforeAll(async () => {
+    const login = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { email: "admin@example.com", password: "supersecret123" },
+    });
+    cookie = cookieHeaderFrom(login);
+  });
+
+  it("registers a custom post type with a generated slug", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/post-types",
+      headers: { cookie },
+      payload: { label: "Product", labelPlural: "Products", route: "products" },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().slug).toBe("product");
+    expect(res.json().builtIn).toBe(false);
+    typeId = res.json().id;
+  });
+
+  it("creates + publishes content of the custom type, served at its route", async () => {
+    const create = await app.inject({
+      method: "POST",
+      url: "/api/posts",
+      headers: { cookie },
+      payload: { type: "product", title: "Super Widget", content: "<p>buy</p>", status: "published" },
+    });
+    expect(create.statusCode).toBe(201);
+    expect(create.json().type).toBe("product");
+    cptPostId = create.json().id;
+
+    const pub = await app.inject({ method: "GET", url: "/products/super-widget?__json=1" });
+    expect(pub.statusCode).toBe(200);
+    expect(pub.json().view).toBe("single");
+    expect(pub.json().post.title).toBe("Super Widget");
+  });
+
+  it("blocks deleting a built-in type and a type still in use", async () => {
+    const builtIn = (await (await app.inject({ method: "GET", url: "/api/post-types", headers: { cookie } })).json())
+      .find((t: { slug: string }) => t.slug === "post");
+    const delBuiltIn = await app.inject({ method: "DELETE", url: `/api/post-types/${builtIn.id}`, headers: { cookie } });
+    expect(delBuiltIn.statusCode).toBe(409);
+
+    const delInUse = await app.inject({ method: "DELETE", url: `/api/post-types/${typeId}`, headers: { cookie } });
+    expect(delInUse.statusCode).toBe(409);
+  });
+
+  it("deletes the custom type once its content is gone", async () => {
+    await app.inject({ method: "DELETE", url: `/api/posts/${cptPostId}/force`, headers: { cookie } });
+    const del = await app.inject({ method: "DELETE", url: `/api/post-types/${typeId}`, headers: { cookie } });
+    expect(del.statusCode).toBe(200);
+  });
+});
+
+describe("Hierarchical pages", () => {
+  let cookie = "";
+  let parentId = 0;
+
+  beforeAll(async () => {
+    const login = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { email: "admin@example.com", password: "supersecret123" },
+    });
+    cookie = cookieHeaderFrom(login);
+  });
+
+  it("creates a parent page and a child page, served at the nested path", async () => {
+    const parent = await app.inject({
+      method: "POST",
+      url: "/api/posts",
+      headers: { cookie },
+      payload: { type: "page", title: "Demo", status: "published" },
+    });
+    expect(parent.statusCode).toBe(201);
+    parentId = parent.json().id;
+    expect(parent.json().path).toBe("/demo");
+
+    const child = await app.inject({
+      method: "POST",
+      url: "/api/posts",
+      headers: { cookie },
+      payload: { type: "page", title: "Page 1", status: "published", parentId },
+    });
+    expect(child.statusCode).toBe(201);
+    expect(child.json().parentId).toBe(parentId);
+    expect(child.json().path).toBe("/demo/page-1");
+
+    // Nested URL resolves…
+    const nested = await app.inject({ method: "GET", url: "/demo/page-1?__json=1" });
+    expect(nested.statusCode).toBe(200);
+    expect(nested.json().view).toBe("page");
+    expect(nested.json().post.title).toBe("Page 1");
+
+    // …but the bare slug does not (canonical is the nested path).
+    const bare = await app.inject({ method: "GET", url: "/page-1?__json=1" });
+    expect(bare.statusCode).toBe(404);
+
+    // Parent page still resolves at its top-level slug.
+    const top = await app.inject({ method: "GET", url: "/demo?__json=1" });
+    expect(top.statusCode).toBe(200);
+    expect(top.json().post.title).toBe("Demo");
+  });
+
+  it("sets a parent via update (edit) and the page moves to the nested path", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/posts",
+      headers: { cookie },
+      payload: { type: "page", title: "Standalone", status: "published" },
+    });
+    const pid = created.json().id;
+    expect(created.json().path).toBe("/standalone");
+
+    const updated = await app.inject({
+      method: "PATCH",
+      url: `/api/posts/${pid}`,
+      headers: { cookie },
+      payload: { type: "page", title: "Standalone", status: "published", parentId },
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json().parentId).toBe(parentId);
+    expect(updated.json().path).toBe("/demo/standalone");
+
+    const nested = await app.inject({ method: "GET", url: "/demo/standalone?__json=1" });
+    expect(nested.statusCode).toBe(200);
+  });
+
+  it("does not treat a different post type's slug as a page parent path", async () => {
+    // A post at /blog/... must not be reachable as a nested page.
+    const miss = await app.inject({ method: "GET", url: "/demo/not-a-child?__json=1" });
+    expect(miss.statusCode).toBe(404);
   });
 });
 

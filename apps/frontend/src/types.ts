@@ -9,6 +9,7 @@ export interface SiteInfo {
 export interface MenuLink {
   label: string;
   url: string;
+  children?: MenuLink[];
 }
 
 export interface PostView {
@@ -21,8 +22,7 @@ export interface PostView {
   publishedAt: string | null;
   author: { id: number; name: string } | null;
   featuredMedia: { url: string; altText: string | null } | null;
-  categories: { name: string; slug: string }[];
-  tags: { name: string; slug: string }[];
+  terms: { name: string; slug: string; taxonomy: string; route: string }[];
 }
 
 export interface ListItemView {
@@ -52,5 +52,5 @@ export interface PageContext {
   themeSettings: Record<string, unknown>;
   post?: PostView;
   posts?: ListItemView[];
-  archive?: { kind: "category" | "tag"; name: string; slug: string };
+  archive?: { label: string; name: string; slug: string };
 }

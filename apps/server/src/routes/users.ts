@@ -17,10 +17,21 @@ const createBody = z.object({
   name: z.string().min(1).max(120),
   password: z.string().min(8).max(200),
   role: roleEnum,
+  firstName: z.string().max(120).nullable().optional(),
+  lastName: z.string().max(120).nullable().optional(),
+  bio: z.string().max(5000).nullable().optional(),
+  website: z.string().max(255).nullable().optional(),
+  avatarUrl: z.string().max(512).nullable().optional(),
+  status: z.enum(["active", "disabled"]).optional(),
 });
 
 const updateBody = z.object({
   name: z.string().min(1).max(120).optional(),
+  firstName: z.string().max(120).nullable().optional(),
+  lastName: z.string().max(120).nullable().optional(),
+  bio: z.string().max(5000).nullable().optional(),
+  website: z.string().max(255).nullable().optional(),
+  avatarUrl: z.string().max(512).nullable().optional(),
   role: roleEnum.optional(),
   status: z.enum(["active", "disabled"]).optional(),
   password: z.string().min(8).max(200).optional(),

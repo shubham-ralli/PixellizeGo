@@ -54,6 +54,10 @@ export async function registerFirstAdmin(db: Database, input: RegisterInput): Pr
       id: insertId,
       email: input.email.toLowerCase().trim(),
       name: input.name.trim(),
+      firstName: null,
+      lastName: null,
+      bio: null,
+      website: null,
       role: "admin",
       avatarUrl: null,
       createdAt: new Date().toISOString(),
@@ -77,6 +81,10 @@ export async function authenticateUser(
         id: users.id,
         email: users.email,
         name: users.name,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        bio: users.bio,
+        website: users.website,
         passwordHash: users.passwordHash,
         avatarUrl: users.avatarUrl,
         status: users.status,
@@ -104,20 +112,33 @@ export async function authenticateUser(
     id: row.id,
     email: row.email,
     name: row.name,
+    firstName: row.firstName,
+    lastName: row.lastName,
+    bio: row.bio,
+    website: row.website,
     role: (row.roleName as UserRole) ?? "author",
     avatarUrl: row.avatarUrl,
     createdAt: row.createdAt.toISOString(),
   };
 }
 
-/** Update the signed-in user's own profile (name + avatar). */
-export async function updateProfile(
-  db: Database,
-  userId: number,
-  input: { name?: string; avatarUrl?: string | null },
-): Promise<void> {
-  const patch: { name?: string; avatarUrl?: string | null } = {};
+export interface ProfileInput {
+  name?: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  bio?: string | null;
+  website?: string | null;
+  avatarUrl?: string | null;
+}
+
+/** Update the signed-in user's own profile. */
+export async function updateProfile(db: Database, userId: number, input: ProfileInput): Promise<void> {
+  const patch: Record<string, unknown> = {};
   if (input.name !== undefined) patch.name = input.name.trim();
+  if (input.firstName !== undefined) patch.firstName = input.firstName?.trim() || null;
+  if (input.lastName !== undefined) patch.lastName = input.lastName?.trim() || null;
+  if (input.bio !== undefined) patch.bio = input.bio || null;
+  if (input.website !== undefined) patch.website = input.website?.trim() || null;
   if (input.avatarUrl !== undefined) patch.avatarUrl = input.avatarUrl;
   if (Object.keys(patch).length === 0) return;
   await db.update(users).set(patch).where(eq(users.id, userId));

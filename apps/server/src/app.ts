@@ -10,6 +10,7 @@ import { dashboardRoutes } from "./routes/dashboard.js";
 import { healthRoutes } from "./routes/health.js";
 import { mediaRoutes } from "./routes/media.js";
 import { postRoutes } from "./routes/posts.js";
+import { postTypeRoutes } from "./routes/post-types.js";
 import { publicRoutes, render404 } from "./routes/public.js";
 import { taxonomyRoutes } from "./routes/taxonomy.js";
 import { themeRoutes } from "./routes/themes.js";
@@ -48,6 +49,7 @@ export async function buildApp(opts: BuildOptions = {}): Promise<FastifyInstance
   await app.register(authRoutes);
   await app.register(dashboardRoutes);
   await app.register(postRoutes);
+  await app.register(postTypeRoutes);
   await app.register(taxonomyRoutes);
   await app.register(mediaRoutes);
   await app.register(themeRoutes);

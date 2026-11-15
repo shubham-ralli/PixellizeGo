@@ -20,19 +20,30 @@ export {
 } from "./posts.js";
 export {
   getPublishedBySlug,
+  getPublishedByPath,
   listPublishedPosts,
-  listPublishedByTaxonomy,
+  listPublishedByTerm,
   listPublishedForSitemap,
   type PublicListItem,
 } from "./public.js";
 export {
-  listCategories,
-  createCategory,
-  updateCategory,
-  deleteCategory,
-  listTags,
-  createTag,
-  updateTag,
-  deleteTag,
+  listPostTypes,
+  getPostType,
+  getPostTypeByRoute,
+  createPostType,
+  updatePostType,
+  deletePostType,
+  PostTypeError,
+  type PostTypeInput,
+} from "./post-types.js";
+export {
+  listTaxonomies,
+  getTaxonomyBySlug,
+  getTaxonomyByRoute,
+  listTerms,
+  getTermBySlug,
+  createTerm,
+  updateTerm,
+  deleteTerm,
   TaxonomyError,
-} from "./taxonomy.js";
+} from "./terms.js";

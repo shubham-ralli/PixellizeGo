@@ -6,27 +6,13 @@ interface AppSidebarHeaderProps {
   showContent: boolean;
 }
 
-export default function AppSidebarHeader({
-  showContent,
-}: AppSidebarHeaderProps) {
+export default function AppSidebarHeader({ showContent }: AppSidebarHeaderProps) {
   return (
     <SidebarHeader className="px-5 py-8">
-      <Link to="/">
-        {showContent ? (
-          <>
-            <img
-              className="h-10 w-37.5 dark:hidden"
-              src={asset("/images/logo/logo.svg")}
-              alt="Logo"
-            />
-            <img
-              className="hidden h-10 w-37.5 dark:block"
-              src={asset("/images/logo/logo-dark.svg")}
-              alt="Logo"
-            />
-          </>
-        ) : (
-          <img src={asset("/images/logo/logo-icon.svg")} alt="Logo" className="size-8" />
+      <Link to="/" className="flex items-center gap-3">
+        <img src={asset("/favicon.png")} alt="PixellizeGo" className="size-8 shrink-0" />
+        {showContent && (
+          <span className="text-xl font-bold text-gray-800 dark:text-white/90">PixellizeGo</span>
         )}
       </Link>
     </SidebarHeader>

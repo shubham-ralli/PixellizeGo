@@ -3,11 +3,12 @@ import { PageBreadcrumb } from "@/components/shared/page-breadcrumb";
 import { PageMeta } from "@/components/shared/page-meta";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { RichTextEditor } from "@/components/shared/rich-text-editor";
 import { useAuth } from "@/contexts";
 import { updateProfile } from "@/lib/cms-api";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router";
 
 function InfoField({ label, value }: { label: string; value: string }) {
   return (
@@ -20,30 +21,42 @@ function InfoField({ label, value }: { label: string; value: string }) {
 
 export default function ProfilePage() {
   const { user, refresh } = useAuth();
-  const [editing, setEditing] = useState(false);
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const editing = pathname.endsWith("/edit");
   const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [website, setWebsite] = useState("");
+  const [bio, setBio] = useState("");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Prefill the form when entering edit mode (via /profile/edit) once the user is loaded.
+  useEffect(() => {
+    if (editing && user) {
+      setName(user.name);
+      setFirstName(user.firstName ?? "");
+      setLastName(user.lastName ?? "");
+      setWebsite(user.website ?? "");
+      setBio(user.bio ?? "");
+      setAvatarUrl(user.avatarUrl ?? null);
+      setError(null);
+    }
+  }, [editing, user]);
+
   const initial = (editing ? name : user?.name)?.trim()?.[0]?.toUpperCase() ?? "?";
   const shownAvatar = editing ? avatarUrl : (user?.avatarUrl ?? null);
-
-  const startEdit = () => {
-    setName(user?.name ?? "");
-    setAvatarUrl(user?.avatarUrl ?? null);
-    setError(null);
-    setEditing(true);
-  };
 
   const save = async () => {
     setSaving(true);
     setError(null);
     try {
-      await updateProfile({ name, avatarUrl });
+      await updateProfile({ name, firstName, lastName, website, bio, avatarUrl });
       await refresh();
-      setEditing(false);
+      navigate("/profile");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Save failed");
     } finally {
@@ -53,18 +66,17 @@ export default function ProfilePage() {
 
   return (
     <div>
-      <PageMeta title="Profile | Pixellize CMS" description="Your account profile" />
-      <PageBreadcrumb pageTitle="Profile" />
+      <PageMeta title={`${editing ? "Edit Profile" : "Profile"} | Pixellize CMS`} description="Your account profile" />
+      <PageBreadcrumb pageTitle={editing ? "Edit Profile" : "Profile"} />
 
       <div className="rounded-2xl border border-gray-200 bg-white p-5 lg:p-6 dark:border-gray-800 dark:bg-white/3">
-        <div className="mb-5 flex items-center justify-between lg:mb-7">
-          <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">Profile</h3>
-          {!editing && (
-            <Button variant="outline" size="sm" onClick={startEdit}>
+        {!editing && (
+          <div className="mb-5 flex justify-end">
+            <Button variant="outline" size="sm" onClick={() => navigate("/profile/edit")}>
               Edit
             </Button>
-          )}
-        </div>
+          </div>
+        )}
 
         {error && (
           <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-400">
@@ -72,7 +84,7 @@ export default function ProfilePage() {
           </div>
         )}
 
-        <Card className="border border-gray-200 p-5 sm:p-6 dark:border-gray-700">
+        <div>
           <div className="flex items-center gap-4 sm:gap-6">
             <Avatar className="size-20 shrink-0">
               {shownAvatar && <AvatarImage src={shownAvatar} alt={user?.name ?? ""} />}
@@ -99,37 +111,72 @@ export default function ProfilePage() {
           </div>
 
           {editing ? (
-            <div className="mt-6 max-w-md space-y-4">
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Name</label>
-                <Input value={name} onChange={(e) => setName(e.target.value)} />
+            <div className="mt-6 w-full space-y-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">First name</label>
+                  <Input value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="First name" />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Last name</label>
+                  <Input value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="Last name" />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Show name (display)</label>
+                  <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Shown publicly" />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Email</label>
+                  <Input value={user?.email ?? ""} disabled />
+                </div>
               </div>
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Email</label>
-                <Input value={user?.email ?? ""} disabled />
+                <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Website</label>
+                <Input value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://…" />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Bio</label>
+                <RichTextEditor value={bio} onChange={setBio} />
+                <p className="mt-1 text-xs text-gray-400">Use the toolbar for bold and links.</p>
               </div>
               <div className="flex gap-2">
                 <Button onClick={save} disabled={saving}>
                   {saving ? "Saving…" : "Save"}
                 </Button>
-                <Button variant="outline" onClick={() => setEditing(false)}>
+                <Button variant="outline" onClick={() => navigate("/profile")}>
                   Cancel
                 </Button>
               </div>
             </div>
           ) : (
-            <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              <InfoField label="Name" value={user?.name ?? "—"} />
-              <InfoField label="Email address" value={user?.email ?? "—"} />
-              <InfoField label="Role" value={user?.role ?? "—"} />
-              <InfoField
-                label="Member since"
-                value={user ? new Date(user.createdAt).toLocaleDateString() : "—"}
-              />
-              <InfoField label="User ID" value={user ? String(user.id) : "—"} />
-            </div>
+            <>
+              <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                <InfoField label="Show name" value={user?.name ?? "—"} />
+                <InfoField label="First name" value={user?.firstName || "—"} />
+                <InfoField label="Last name" value={user?.lastName || "—"} />
+                <InfoField label="Email address" value={user?.email ?? "—"} />
+                <InfoField label="Role" value={user?.role ?? "—"} />
+                <InfoField label="Website" value={user?.website || "—"} />
+                <InfoField
+                  label="Member since"
+                  value={user ? new Date(user.createdAt).toLocaleDateString() : "—"}
+                />
+                <InfoField label="User ID" value={user ? String(user.id) : "—"} />
+              </div>
+              {user?.bio && (
+                <div className="mt-6">
+                  <p className="mb-1 text-xs text-gray-500 dark:text-gray-400">Bio</p>
+                  <div
+                    className="prose prose-sm max-w-none text-sm text-gray-700 dark:text-gray-300 dark:prose-invert"
+                    dangerouslySetInnerHTML={{ __html: user.bio }}
+                  />
+                </div>
+              )}
+            </>
           )}
-        </Card>
+        </div>
       </div>
 
       <MediaPicker

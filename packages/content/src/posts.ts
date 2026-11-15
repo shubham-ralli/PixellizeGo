@@ -1,19 +1,19 @@
 import { slugify } from "@pixellize/core";
 import {
   type Database,
-  categories,
   media,
-  postCategories,
   postMeta,
-  postTags,
+  postTerms,
+  postTypes,
   posts,
   revisions,
-  tags,
+  taxonomies,
+  terms,
   users,
 } from "@pixellize/database";
 import { and, desc, eq, inArray, isNotNull, isNull, like, lte, ne } from "drizzle-orm";
 
-export type PostType = "post" | "page";
+export type PostType = string; // a post_types.slug — "post", "page", or any custom type
 export type PostStatus = "draft" | "published" | "scheduled";
 
 export class ContentError extends Error {
@@ -34,8 +34,8 @@ export interface PostInput {
   status?: PostStatus;
   scheduledAt?: string | null; // ISO
   featuredMediaId?: number | null;
-  categoryIds?: number[];
-  tagIds?: number[];
+  parentId?: number | null; // hierarchical pages
+  termIds?: number[];
   meta?: Record<string, string>;
 }
 
@@ -51,11 +51,37 @@ export interface PostDTO {
   scheduledAt: string | null;
   featuredMedia: { id: number; url: string; altText: string | null } | null;
   author: { id: number; name: string } | null;
-  categories: { id: number; name: string; slug: string }[];
-  tags: { id: number; name: string; slug: string }[];
+  parentId: number | null;
+  path: string; // full public URL path (nested for hierarchical pages)
+  terms: { id: number; name: string; slug: string; taxonomy: string; taxonomyLabel: string; route: string }[];
   meta: Record<string, string>;
   createdAt: string;
   updatedAt: string;
+}
+
+/** Build the full public path for a post, walking the parent chain for hierarchical types. */
+async function buildPath(
+  db: Database,
+  type: string,
+  slug: string,
+  parentId: number | null,
+): Promise<string> {
+  const pt = (await db.select().from(postTypes).where(eq(postTypes.slug, type)).limit(1))[0];
+  const route = pt?.route ?? "";
+  const segs = [slug];
+  if (pt?.hierarchical) {
+    let pid = parentId;
+    for (let depth = 0; pid && depth < 10; depth++) {
+      // ponytail: depth cap guards against a parent cycle
+      const p = (
+        await db.select({ slug: posts.slug, parentId: posts.parentId }).from(posts).where(eq(posts.id, pid)).limit(1)
+      )[0];
+      if (!p) break;
+      segs.unshift(p.slug);
+      pid = p.parentId;
+    }
+  }
+  return `${route ? `/${route}` : ""}/${segs.join("/")}`;
 }
 
 async function uniqueSlug(db: Database, type: PostType, base: string, excludeId?: number): Promise<string> {
@@ -103,21 +129,10 @@ async function replaceMeta(db: Database, postId: number, meta: Record<string, st
   if (rows.length) await db.insert(postMeta).values(rows);
 }
 
-async function replaceTaxonomy(
-  db: Database,
-  postId: number,
-  categoryIds: number[] | undefined,
-  tagIds: number[] | undefined,
-): Promise<void> {
-  if (categoryIds) {
-    await db.delete(postCategories).where(eq(postCategories.postId, postId));
-    if (categoryIds.length)
-      await db.insert(postCategories).values(categoryIds.map((categoryId) => ({ postId, categoryId })));
-  }
-  if (tagIds) {
-    await db.delete(postTags).where(eq(postTags.postId, postId));
-    if (tagIds.length) await db.insert(postTags).values(tagIds.map((tagId) => ({ postId, tagId })));
-  }
+async function replaceTerms(db: Database, postId: number, termIds: number[] | undefined): Promise<void> {
+  if (!termIds) return;
+  await db.delete(postTerms).where(eq(postTerms.postId, postId));
+  if (termIds.length) await db.insert(postTerms).values(termIds.map((termId) => ({ postId, termId })));
 }
 
 export async function createPost(db: Database, authorId: number, input: PostInput): Promise<PostDTO> {
@@ -136,11 +151,12 @@ export async function createPost(db: Database, authorId: number, input: PostInpu
       publishedAt: st.publishedAt,
       scheduledAt: st.scheduledAt,
       featuredMediaId: input.featuredMediaId ?? null,
+      parentId: input.parentId ?? null,
       authorId,
     });
     const [header] = result as unknown as [{ insertId: number }];
     const postId = Number(header.insertId);
-    await replaceTaxonomy(tx, postId, input.categoryIds, input.tagIds);
+    await replaceTerms(tx, postId, input.termIds);
     if (input.meta) await replaceMeta(tx, postId, input.meta);
     await tx.insert(revisions).values({
       postId,
@@ -186,9 +202,15 @@ export async function updatePost(
         publishedAt: st.publishedAt,
         scheduledAt: st.scheduledAt,
         featuredMediaId: input.featuredMediaId ?? null,
+        // never let a post be its own parent (would break path building)
+        parentId: (input.parentId !== undefined ? input.parentId : existing.parentId) === id
+          ? null
+          : input.parentId !== undefined
+            ? input.parentId
+            : existing.parentId,
       })
       .where(eq(posts.id, id));
-    await replaceTaxonomy(tx, id, input.categoryIds, input.tagIds);
+    await replaceTerms(tx, id, input.termIds);
     if (input.meta) await replaceMeta(tx, id, input.meta);
     await tx.insert(revisions).values({
       postId: id,
@@ -281,6 +303,8 @@ export interface PostListItem {
   type: PostType;
   title: string;
   slug: string;
+  parentId: number | null;
+  path: string; // full public URL path
   status: PostStatus;
   authorName: string | null;
   featuredUrl: string | null;
@@ -308,6 +332,7 @@ export async function listPosts(
       type: posts.type,
       title: posts.title,
       slug: posts.slug,
+      parentId: posts.parentId,
       status: posts.status,
       authorName: users.name,
       featuredUrl: media.url,
@@ -325,12 +350,42 @@ export async function listPosts(
 
   const countRows = await db.select({ id: posts.id }).from(posts).where(where);
 
+  // Resolve public paths. For a hierarchical type, build nested paths from an
+  // in-memory map of every post of that type (one extra query).
+  const pt = filter.type
+    ? (await db.select().from(postTypes).where(eq(postTypes.slug, filter.type)).limit(1))[0]
+    : undefined;
+  const route = pt?.route ?? "";
+  let chainMap: Map<number, { slug: string; parentId: number | null }> | undefined;
+  if (pt?.hierarchical) {
+    const all = await db
+      .select({ id: posts.id, slug: posts.slug, parentId: posts.parentId })
+      .from(posts)
+      .where(eq(posts.type, filter.type!));
+    chainMap = new Map(all.map((a) => [a.id, { slug: a.slug, parentId: a.parentId }]));
+  }
+  const pathOf = (slug: string, parentId: number | null): string => {
+    const segs = [slug];
+    if (chainMap) {
+      let pid = parentId;
+      for (let d = 0; pid && d < 10; d++) {
+        const p = chainMap.get(pid);
+        if (!p) break;
+        segs.unshift(p.slug);
+        pid = p.parentId;
+      }
+    }
+    return `${route ? `/${route}` : ""}/${segs.join("/")}`;
+  };
+
   return {
     items: rows.map((r) => ({
       id: r.id,
       type: r.type as PostType,
       title: r.title,
       slug: r.slug,
+      parentId: r.parentId,
+      path: pathOf(r.slug, r.parentId),
       status: r.status as PostStatus,
       authorName: r.authorName,
       featuredUrl: r.featuredUrl,
@@ -355,6 +410,7 @@ export async function getPost(db: Database, id: number): Promise<PostDTO | undef
         status: posts.status,
         publishedAt: posts.publishedAt,
         scheduledAt: posts.scheduledAt,
+        parentId: posts.parentId,
         createdAt: posts.createdAt,
         updatedAt: posts.updatedAt,
         authorId: users.id,
@@ -371,17 +427,19 @@ export async function getPost(db: Database, id: number): Promise<PostDTO | undef
   )[0];
   if (!row) return undefined;
 
-  const cats = await db
-    .select({ id: categories.id, name: categories.name, slug: categories.slug })
-    .from(postCategories)
-    .innerJoin(categories, eq(postCategories.categoryId, categories.id))
-    .where(eq(postCategories.postId, id));
-
-  const tagRows = await db
-    .select({ id: tags.id, name: tags.name, slug: tags.slug })
-    .from(postTags)
-    .innerJoin(tags, eq(postTags.tagId, tags.id))
-    .where(eq(postTags.postId, id));
+  const termRows = await db
+    .select({
+      id: terms.id,
+      name: terms.name,
+      slug: terms.slug,
+      taxonomy: taxonomies.slug,
+      taxonomyLabel: taxonomies.label,
+      route: taxonomies.route,
+    })
+    .from(postTerms)
+    .innerJoin(terms, eq(postTerms.termId, terms.id))
+    .innerJoin(taxonomies, eq(terms.taxonomyId, taxonomies.id))
+    .where(eq(postTerms.postId, id));
 
   const metaRows = await db
     .select({ metaKey: postMeta.metaKey, metaValue: postMeta.metaValue })
@@ -402,8 +460,9 @@ export async function getPost(db: Database, id: number): Promise<PostDTO | undef
     scheduledAt: row.scheduledAt ? row.scheduledAt.toISOString() : null,
     featuredMedia: row.mediaId ? { id: row.mediaId, url: row.mediaUrl!, altText: row.mediaAlt } : null,
     author: row.authorId ? { id: row.authorId, name: row.authorName! } : null,
-    categories: cats,
-    tags: tagRows,
+    parentId: row.parentId,
+    path: await buildPath(db, row.type, row.slug, row.parentId),
+    terms: termRows,
     meta,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

@@ -47,7 +47,7 @@ export default function SeoPage() {
         </div>
       )}
 
-      <div className="max-w-xl space-y-5 rounded-2xl border border-gray-200 p-5 dark:border-gray-800">
+      <div className="w-full space-y-5 rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/3">
         <div>
           <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">
             Default meta description

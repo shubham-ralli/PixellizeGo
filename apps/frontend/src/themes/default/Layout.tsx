@@ -18,21 +18,41 @@ export function Layout({
             {site.title || "Pixellize"}
           </a>
           <nav className="site-nav">
-            {menu.map((m) => (
-              <a key={m.url + m.label} href={m.url}>
-                {m.label}
-              </a>
-            ))}
+            {menu.map((m) =>
+              m.children && m.children.length > 0 ? (
+                <div key={m.url + m.label} className="site-nav__item has-children">
+                  <a href={m.url}>{m.label}</a>
+                  <div className="site-nav__submenu">
+                    {m.children.map((c) => (
+                      <a key={c.url + c.label} href={c.url}>
+                        {c.label}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <a key={m.url + m.label} href={m.url} className="site-nav__item">
+                  {m.label}
+                </a>
+              ),
+            )}
           </nav>
         </div>
       </header>
 
-      <main className="container site-main">{children}</main>
+      <main className="site-main">
+        <div className="container">{children}</div>
+      </main>
 
       <footer className="site-footer">
-        <div className="container">
-          © {new Date().getFullYear()} {site.title || "Pixellize"}
-          {site.tagline ? ` — ${site.tagline}` : ""}
+        <div className="container site-footer__inner">
+          <div className="site-footer__brand">
+            {site.title || "Pixellize"}
+            {site.tagline && <span>{site.tagline}</span>}
+          </div>
+          <div className="site-footer__copy">
+            © {new Date().getFullYear()} {site.title || "Pixellize"}. All rights reserved.
+          </div>
         </div>
       </footer>
     </div>

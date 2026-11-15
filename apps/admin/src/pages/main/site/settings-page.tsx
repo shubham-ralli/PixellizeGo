@@ -67,9 +67,9 @@ export default function SettingsPage() {
         </div>
       )}
 
-      <div className="max-w-2xl space-y-6">
+      <div className="w-full space-y-6">
         {SECTIONS.map((section) => (
-          <div key={section.title} className="rounded-2xl border border-gray-200 p-5 dark:border-gray-800">
+          <div key={section.title} className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/3">
             <h2 className="mb-4 text-base font-semibold text-gray-800 dark:text-white/90">{section.title}</h2>
             <div className="space-y-4">
               {section.fields.map((f) => (

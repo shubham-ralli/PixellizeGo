@@ -7,18 +7,75 @@ import {
   createMenu,
   deleteMenu,
   listMenus,
+  listPostTypes,
+  listPosts,
+  listTaxonomies,
+  listTerms,
   updateMenu,
 } from "@/lib/cms-api";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
+/** Relative public path for a post/term: /blog/slug, /slug (route ""), /category/news. */
+const pathFor = (route: string, slug: string) => (route ? `/${route}/${slug}` : `/${slug}`);
+
+// The menu structure is edited as a flat list with a depth (0 = top level, 1 = sub item)
+// and converted to/from the stored nested tree. Capped at 2 levels (matches most menus).
+interface FlatItem {
+  label: string;
+  url: string;
+  depth: number;
+}
+
+function flatten(items: MenuLink[], depth = 0, out: FlatItem[] = []): FlatItem[] {
+  for (const it of items) {
+    out.push({ label: it.label, url: it.url, depth: Math.min(depth, 1) });
+    if (it.children?.length) flatten(it.children, depth + 1, out);
+  }
+  return out;
+}
+
+function toTree(flat: FlatItem[]): MenuLink[] {
+  const root: MenuLink[] = [];
+  let parent: MenuLink | null = null;
+  for (const f of flat) {
+    if (!f.label.trim() || !f.url.trim()) continue;
+    const node: MenuLink = { label: f.label.trim(), url: f.url.trim() };
+    if (f.depth >= 1 && parent) (parent.children ??= []).push(node);
+    else {
+      root.push(node);
+      parent = node;
+    }
+  }
+  return root;
+}
+
+interface Source {
+  key: string;
+  title: string;
+  load: () => Promise<MenuLink[]>;
+}
+
+function Label({ children }: { children: React.ReactNode }) {
+  return <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">{children}</label>;
+}
 
 export default function MenusPage() {
   const [menus, setMenus] = useState<Menu[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [location, setLocation] = useState("");
-  const [items, setItems] = useState<MenuLink[]>([]);
+  const [items, setItems] = useState<FlatItem[]>([]);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // "Add menu items" sources + lazy-loaded entries + per-source checkbox selection.
+  const [sources, setSources] = useState<Source[]>([]);
+  const [openSource, setOpenSource] = useState<string | null>("__custom");
+  const [sourceItems, setSourceItems] = useState<Record<string, MenuLink[]>>({});
+  const [sourceLoading, setSourceLoading] = useState<string | null>(null);
+  const [checked, setChecked] = useState<Record<string, Set<number>>>({});
+  const [customLabel, setCustomLabel] = useState("");
+  const [customUrl, setCustomUrl] = useState("");
 
   const load = async () => {
     const list = await listMenus().catch((e) => {
@@ -30,16 +87,83 @@ export default function MenusPage() {
   };
   useEffect(() => void load(), []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Build sources once: every post type (published content) + every taxonomy (terms).
+  useEffect(() => {
+    void (async () => {
+      const [types, taxes] = await Promise.all([listPostTypes(), listTaxonomies()]);
+      const typeSources: Source[] = types.map((pt) => ({
+        key: `type:${pt.slug}`,
+        title: pt.labelPlural,
+        load: async () => {
+          const { items } = await listPosts({ type: pt.slug, status: "published", limit: 100 });
+          return items.map((p) => ({ label: p.title, url: pathFor(pt.route, p.slug) }));
+        },
+      }));
+      const taxSources: Source[] = taxes.map((tx) => ({
+        key: `tax:${tx.slug}`,
+        title: tx.labelPlural,
+        load: async () => {
+          const terms = await listTerms(tx.slug);
+          return terms.map((t) => ({ label: t.name, url: pathFor(tx.route, t.slug) }));
+        },
+      }));
+      setSources([...typeSources, ...taxSources]);
+    })();
+  }, []);
+
+  const toggleSource = async (key: string, loader?: () => Promise<MenuLink[]>) => {
+    if (openSource === key) {
+      setOpenSource(null);
+      return;
+    }
+    setOpenSource(key);
+    if (loader && !sourceItems[key]) {
+      setSourceLoading(key);
+      try {
+        const entries = await loader();
+        setSourceItems((prev) => ({ ...prev, [key]: entries }));
+      } finally {
+        setSourceLoading(null);
+      }
+    }
+  };
+
+  const toggleCheck = (key: string, idx: number) => {
+    setChecked((prev) => {
+      const set = new Set(prev[key] ?? []);
+      if (set.has(idx)) set.delete(idx);
+      else set.add(idx);
+      return { ...prev, [key]: set };
+    });
+  };
+
+  const addChecked = (key: string) => {
+    const set = checked[key];
+    const entries = sourceItems[key];
+    if (!set || !entries || set.size === 0) return;
+    const picked = [...set].sort((a, b) => a - b).map((i) => entries[i]);
+    setItems((prev) => [...prev, ...picked.map((e) => ({ label: e.label, url: e.url, depth: 0 }))]);
+    setChecked((prev) => ({ ...prev, [key]: new Set() }));
+    setStatus(`Added ${picked.length} item(s) — remember to Save`);
+  };
+
   const select = (m: Menu) => {
     setSelectedId(m.id);
     setName(m.name);
     setLocation(m.location ?? "");
-    setItems(m.items ?? []);
+    setItems(flatten(m.items ?? []));
     setStatus(null);
   };
 
-  const addItem = () => setItems([...items, { label: "", url: "" }]);
-  const setItem = (i: number, patch: Partial<MenuLink>) =>
+  const addCustom = () => {
+    if (!customLabel.trim() || !customUrl.trim()) return;
+    setItems((prev) => [...prev, { label: customLabel.trim(), url: customUrl.trim(), depth: 0 }]);
+    setCustomLabel("");
+    setCustomUrl("");
+    setStatus("Added — remember to Save");
+  };
+
+  const setItem = (i: number, patch: Partial<FlatItem>) =>
     setItems(items.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
   const removeItem = (i: number) => setItems(items.filter((_, idx) => idx !== i));
   const move = (i: number, dir: -1 | 1) => {
@@ -49,16 +173,24 @@ export default function MenusPage() {
     [next[i], next[j]] = [next[j], next[i]];
     setItems(next);
   };
+  const indent = (i: number) => {
+    if (i === 0 || items[i].depth >= 1) return;
+    setItem(i, { depth: 1 });
+  };
+  const outdent = (i: number) => {
+    if (items[i].depth <= 0) return;
+    setItem(i, { depth: 0 });
+  };
 
   const save = async () => {
     setStatus(null);
     setError(null);
-    const cleanItems = items.filter((it) => it.label.trim() && it.url.trim());
     try {
+      const tree = toTree(items);
       if (selectedId) {
-        await updateMenu(selectedId, { name, location: location || null, items: cleanItems });
+        await updateMenu(selectedId, { name, location: location || null, items: tree });
       } else {
-        const created = await createMenu({ name: name || "Menu", location: location || null, items: cleanItems });
+        const created = await createMenu({ name: name || "Menu", location: location || null, items: tree });
         setSelectedId(created.id);
       }
       setStatus("Saved");
@@ -73,6 +205,7 @@ export default function MenusPage() {
     setName("New Menu");
     setLocation("");
     setItems([]);
+    setStatus(null);
   };
 
   const remove = async () => {
@@ -82,6 +215,41 @@ export default function MenusPage() {
     setName("");
     setItems([]);
     await load();
+  };
+
+  const hasMenu = selectedId !== null || name !== "";
+  const locationTaken = useMemo(
+    () => menus.find((m) => m.location && m.location === location && m.id !== selectedId)?.name,
+    [menus, location, selectedId],
+  );
+
+  const renderSourceBody = (key: string) => {
+    const entries = sourceItems[key] ?? [];
+    const set = checked[key] ?? new Set<number>();
+    return (
+      <div className="border-t border-gray-100 px-3 py-3 dark:border-gray-800">
+        <div className="max-h-56 space-y-1 overflow-auto">
+          {sourceLoading === key && <p className="px-1 text-sm text-gray-400">Loading…</p>}
+          {sourceLoading !== key && entries.length === 0 && (
+            <p className="px-1 text-sm text-gray-400">Nothing published yet.</p>
+          )}
+          {entries.map((entry, i) => (
+            <label
+              key={`${entry.url}-${i}`}
+              className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-white/5"
+            >
+              <input type="checkbox" checked={set.has(i)} onChange={() => toggleCheck(key, i)} />
+              <span className="truncate">{entry.label}</span>
+            </label>
+          ))}
+        </div>
+        {entries.length > 0 && (
+          <Button size="sm" variant="outline" className="mt-2 w-full" disabled={set.size === 0} onClick={() => addChecked(key)}>
+            Add to menu{set.size > 0 ? ` (${set.size})` : ""}
+          </Button>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -98,68 +266,141 @@ export default function MenusPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
-        <div className="space-y-2">
+      {/* Your menus — top bar */}
+      <div className="mb-6">
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">Your menus</p>
+        <div className="flex flex-wrap gap-2">
+          {menus.length === 0 && <p className="text-sm text-gray-400">No menus yet.</p>}
           {menus.map((m) => (
             <button
               key={m.id}
               onClick={() => select(m)}
-              className={`block w-full rounded-lg border px-3 py-2 text-left text-sm ${
+              className={`rounded-lg border px-3 py-2 text-left text-sm ${
                 selectedId === m.id
                   ? "border-brand-500 bg-brand-50 text-brand-600 dark:bg-brand-500/10"
-                  : "border-gray-200 text-gray-700 dark:border-gray-800 dark:text-gray-300"
+                  : "border-gray-200 text-gray-700 hover:border-gray-300 dark:border-gray-800 dark:text-gray-300"
               }`}
             >
               {m.name}
-              {m.location && <span className="ml-1 text-xs text-gray-400">({m.location})</span>}
+              {m.location && <span className="ml-1 text-xs text-gray-400">· {m.location}</span>}
+              <span className="ml-1 text-xs text-gray-400">({m.items?.length ?? 0})</span>
             </button>
           ))}
         </div>
+      </div>
 
-        <div className="lg:col-span-3 space-y-4 rounded-2xl border border-gray-200 p-5 dark:border-gray-800">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Menu name</label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} />
-            </div>
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Location (e.g. primary)
-              </label>
-              <Input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="primary" />
-            </div>
-          </div>
+      {!hasMenu ? (
+        <div className="rounded-2xl border border-dashed border-gray-300 p-10 text-center text-sm text-gray-400 dark:border-gray-700">
+          Select a menu above, or create a new one to get started.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
+          {/* LEFT: Add menu items (25%) */}
+          <div className="space-y-3 lg:col-span-1">
+            <h3 className="text-sm font-semibold text-gray-800 dark:text-white/90">Add menu items</h3>
 
-          <div>
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Items</span>
-              <Button size="xs" variant="outline" onClick={addItem}>+ Add item</Button>
-            </div>
-            <div className="space-y-2">
-              {items.length === 0 && <p className="text-sm text-gray-400">No items. Add one.</p>}
-              {items.map((it, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <Input placeholder="Label" value={it.label} onChange={(e) => setItem(i, { label: e.target.value })} />
-                  <Input placeholder="URL (e.g. /about)" value={it.url} onChange={(e) => setItem(i, { url: e.target.value })} />
-                  <Button size="xs" variant="outline" onClick={() => move(i, -1)}>↑</Button>
-                  <Button size="xs" variant="outline" onClick={() => move(i, 1)}>↓</Button>
-                  <Button size="xs" variant="destructive" onClick={() => removeItem(i)}>✕</Button>
+            {/* Custom link */}
+            <div className="rounded-xl border border-gray-200 dark:border-gray-800">
+              <button
+                onClick={() => toggleSource("__custom")}
+                className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-300"
+              >
+                Custom link
+                <span className="text-gray-400">{openSource === "__custom" ? "−" : "+"}</span>
+              </button>
+              {openSource === "__custom" && (
+                <div className="space-y-2 border-t border-gray-100 px-4 py-3 dark:border-gray-800">
+                  <Input placeholder="Link text" value={customLabel} onChange={(e) => setCustomLabel(e.target.value)} />
+                  <Input placeholder="URL (e.g. /about or https://…)" value={customUrl} onChange={(e) => setCustomUrl(e.target.value)} />
+                  <Button size="sm" className="w-full" onClick={addCustom}>Add to menu</Button>
                 </div>
-              ))}
+              )}
             </div>
+
+            {/* Content sources (post types + taxonomies) */}
+            {sources.map((s) => (
+              <div key={s.key} className="rounded-xl border border-gray-200 dark:border-gray-800">
+                <button
+                  onClick={() => toggleSource(s.key, s.load)}
+                  className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-300"
+                >
+                  {s.title}
+                  <span className="text-gray-400">{openSource === s.key ? "−" : "+"}</span>
+                </button>
+                {openSource === s.key && renderSourceBody(s.key)}
+              </div>
+            ))}
           </div>
 
-          <div className="flex items-center justify-between">
-            <Button onClick={save}>Save Menu</Button>
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-gray-400">{status}</span>
-              {selectedId && (
-                <Button variant="destructive" onClick={remove}>Delete</Button>
+          {/* RIGHT: Menu structure + settings (75%) */}
+          <div className="space-y-4 lg:col-span-3">
+            <div className="rounded-2xl border border-gray-200 p-5 dark:border-gray-800">
+              <div className="grid grid-cols-1 gap-3">
+                <div>
+                  <Label>Menu name</Label>
+                  <Input value={name} onChange={(e) => setName(e.target.value)} />
+                </div>
+                <div>
+                  <Label>Location</Label>
+                  <select
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
+                    className="h-10 w-full rounded-lg border border-gray-300 bg-transparent px-3 text-sm text-gray-700 dark:border-gray-700 dark:text-gray-300"
+                  >
+                    <option value="">— Not assigned —</option>
+                    <option value="primary">Primary (header)</option>
+                    <option value="footer">Footer</option>
+                    {location && !["primary", "footer"].includes(location) && <option value={location}>{location}</option>}
+                  </select>
+                  {locationTaken && (
+                    <p className="mt-1 text-xs text-amber-500">“{locationTaken}” already uses this location; saving will move it here.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-gray-200 p-5 dark:border-gray-800">
+              <h3 className="mb-1 text-sm font-semibold text-gray-800 dark:text-white/90">Menu structure</h3>
+              <p className="mb-3 text-xs text-gray-400">Use → to make an item a sub-item, ← to move it back up.</p>
+              {items.length === 0 && (
+                <p className="rounded-lg border border-dashed border-gray-200 px-4 py-6 text-center text-sm text-gray-400 dark:border-gray-700">
+                  Check items on the left and click “Add to menu”.
+                </p>
               )}
+              <div className="space-y-2">
+                {items.map((it, i) => (
+                  <div key={i} style={{ marginLeft: it.depth * 24 }} className="rounded-xl border border-gray-200 p-3 dark:border-gray-800">
+                    <div className="flex items-start gap-2">
+                      <div className="flex-1 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Input placeholder="Label" value={it.label} onChange={(e) => setItem(i, { label: e.target.value })} />
+                          {it.depth > 0 && <span className="shrink-0 text-xs italic text-gray-400">sub item</span>}
+                        </div>
+                        <Input placeholder="URL" value={it.url} onChange={(e) => setItem(i, { url: e.target.value })} />
+                      </div>
+                      <div className="grid grid-cols-2 gap-1">
+                        <Button size="xs" variant="outline" disabled={i === 0} onClick={() => move(i, -1)} title="Move up">↑</Button>
+                        <Button size="xs" variant="outline" disabled={i === items.length - 1} onClick={() => move(i, 1)} title="Move down">↓</Button>
+                        <Button size="xs" variant="outline" disabled={it.depth <= 0} onClick={() => outdent(i)} title="Outdent">←</Button>
+                        <Button size="xs" variant="outline" disabled={i === 0 || it.depth >= 1} onClick={() => indent(i)} title="Indent">→</Button>
+                        <Button size="xs" variant="destructive" className="col-span-2" onClick={() => removeItem(i)}>✕ Remove</Button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <Button onClick={save}>Save Menu</Button>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-gray-400">{status}</span>
+                {selectedId && <Button variant="destructive" onClick={remove}>Delete</Button>}
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
     </>
   );
 }

@@ -8,6 +8,10 @@ export interface UserListItem {
   id: number;
   name: string;
   email: string;
+  firstName: string | null;
+  lastName: string | null;
+  bio: string | null;
+  website: string | null;
   role: UserRole;
   avatarUrl: string | null;
   status: "active" | "disabled";
@@ -26,6 +30,10 @@ export async function listUsers(db: Database): Promise<UserListItem[]> {
       id: users.id,
       name: users.name,
       email: users.email,
+      firstName: users.firstName,
+      lastName: users.lastName,
+      bio: users.bio,
+      website: users.website,
       avatarUrl: users.avatarUrl,
       status: users.status,
       createdAt: users.createdAt,
@@ -38,6 +46,10 @@ export async function listUsers(db: Database): Promise<UserListItem[]> {
     id: r.id,
     name: r.name,
     email: r.email,
+    firstName: r.firstName,
+    lastName: r.lastName,
+    bio: r.bio,
+    website: r.website,
     avatarUrl: r.avatarUrl,
     status: r.status as "active" | "disabled",
     createdAt: r.createdAt.toISOString(),
@@ -58,7 +70,18 @@ export async function countAdmins(db: Database): Promise<number> {
 
 export async function createUser(
   db: Database,
-  input: { email: string; name: string; password: string; role: UserRole },
+  input: {
+    email: string;
+    name: string;
+    password: string;
+    role: UserRole;
+    firstName?: string | null;
+    lastName?: string | null;
+    bio?: string | null;
+    website?: string | null;
+    avatarUrl?: string | null;
+    status?: "active" | "disabled";
+  },
 ): Promise<number> {
   const roleId = await roleIdByName(db, input.role);
   const passwordHash = await hashPassword(input.password);
@@ -66,6 +89,12 @@ export async function createUser(
     const res = await db.insert(users).values({
       email: input.email.toLowerCase().trim(),
       name: input.name.trim(),
+      firstName: input.firstName?.trim() || null,
+      lastName: input.lastName?.trim() || null,
+      bio: input.bio || null,
+      website: input.website?.trim() || null,
+      avatarUrl: input.avatarUrl ?? null,
+      status: input.status ?? "active",
       passwordHash,
       roleId,
     });
@@ -82,10 +111,25 @@ export async function createUser(
 export async function updateUser(
   db: Database,
   id: number,
-  input: { name?: string; role?: UserRole; status?: "active" | "disabled"; password?: string },
+  input: {
+    name?: string;
+    firstName?: string | null;
+    lastName?: string | null;
+    bio?: string | null;
+    website?: string | null;
+    avatarUrl?: string | null;
+    role?: UserRole;
+    status?: "active" | "disabled";
+    password?: string;
+  },
 ): Promise<void> {
   const patch: Record<string, unknown> = {};
   if (input.name !== undefined) patch.name = input.name.trim();
+  if (input.firstName !== undefined) patch.firstName = input.firstName?.trim() || null;
+  if (input.lastName !== undefined) patch.lastName = input.lastName?.trim() || null;
+  if (input.bio !== undefined) patch.bio = input.bio || null;
+  if (input.website !== undefined) patch.website = input.website?.trim() || null;
+  if (input.avatarUrl !== undefined) patch.avatarUrl = input.avatarUrl;
   if (input.role !== undefined) patch.roleId = await roleIdByName(db, input.role);
   if (input.status !== undefined) patch.status = input.status;
   if (input.password) patch.passwordHash = await hashPassword(input.password);

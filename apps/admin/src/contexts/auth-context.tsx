@@ -5,6 +5,10 @@ export interface AuthUser {
   id: number;
   email: string;
   name: string;
+  firstName: string | null;
+  lastName: string | null;
+  bio: string | null;
+  website: string | null;
   role: "admin" | "editor" | "author";
   avatarUrl: string | null;
   createdAt: string;

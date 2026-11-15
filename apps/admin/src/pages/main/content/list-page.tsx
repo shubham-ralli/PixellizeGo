@@ -2,18 +2,19 @@ import { type Column, DataTable } from "@/components/shared/data-table";
 import { PageMeta } from "@/components/shared/page-meta";
 import { Button } from "@/components/ui/button";
 import {
+  absoluteUrl,
   bulkPosts,
   forceDeletePost,
   listPosts,
-  publicUrl,
+  listPostTypes,
   restorePost,
   trashPost,
   type PostListItem,
   type PostStatus,
-  type PostType,
+  type PostTypeDef,
 } from "@/lib/cms-api";
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useParams } from "react-router";
 
 const STATUS_STYLES: Record<PostStatus, string> = {
   published: "bg-green-50 text-green-600 dark:bg-green-500/10 dark:text-green-400",
@@ -21,16 +22,23 @@ const STATUS_STYLES: Record<PostStatus, string> = {
   scheduled: "bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400",
 };
 
-export default function ContentListPage({ type }: { type: PostType }) {
+export default function ContentListPage() {
+  const { type = "post" } = useParams();
   const navigate = useNavigate();
   const [items, setItems] = useState<PostListItem[]>([]);
+  const [postType, setPostType] = useState<PostTypeDef | null>(null);
   const [status, setStatus] = useState<PostStatus | "">("");
   const [view, setView] = useState<"active" | "trash">("active");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const label = type === "post" ? "Posts" : "Pages";
-  const base = type === "post" ? "/posts" : "/pages";
+  useEffect(() => {
+    void listPostTypes().then((types) => setPostType(types.find((t) => t.slug === type) ?? null));
+  }, [type]);
+
+  const label = postType?.labelPlural ?? "Content";
+  const singular = postType?.label ?? "Item";
+  const base = `/content/${type}`;
   const isTrash = view === "trash";
 
   const load = useCallback(async () => {
@@ -103,7 +111,7 @@ export default function ContentListPage({ type }: { type: PostType }) {
             </>
           ) : (
             <>
-              <Button size="xs" variant="outline" onClick={() => window.open(publicUrl(p.type, p.slug), "_blank", "noopener")}>View</Button>
+              <Button size="xs" variant="outline" onClick={() => window.open(absoluteUrl(p.path), "_blank", "noopener")}>View</Button>
               <Button size="xs" variant="outline" onClick={() => navigate(`${base}/${p.id}/edit`)}>Edit</Button>
               <Button size="xs" variant="destructive" onClick={() => rowAction(() => trashPost(p.id))}>Trash</Button>
             </>
@@ -128,7 +136,7 @@ export default function ContentListPage({ type }: { type: PostType }) {
           {label}
           {isTrash && <span className="ml-2 text-base font-normal text-gray-400">· Trash</span>}
         </h1>
-        {!isTrash && <Button onClick={() => navigate(`${base}/new`)}>+ New {type === "post" ? "Post" : "Page"}</Button>}
+        {!isTrash && <Button onClick={() => navigate(`${base}/new`)}>+ New {singular}</Button>}
       </div>
 
       {error && (

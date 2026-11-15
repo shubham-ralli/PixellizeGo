@@ -1,6 +1,9 @@
 import {
+  type PostDTO,
+  getPostTypeByRoute,
+  getPublishedByPath,
   getPublishedBySlug,
-  listPublishedByTaxonomy,
+  listPublishedByTerm,
   listPublishedForSitemap,
   listPublishedPosts,
 } from "@pixellize/content";
@@ -33,12 +36,27 @@ interface SeoDefaults {
   robots?: string;
 }
 
+interface MenuNode {
+  label: string;
+  url: string;
+  children?: MenuNode[];
+}
+
 interface BaseContext {
   site: { title: string; tagline: string; baseUrl: string };
-  menu: { label: string; url: string }[];
+  menu: MenuNode[];
   themeSettings: Record<string, unknown>;
   seo: SeoDefaults;
   adminBar?: AdminBar;
+}
+
+/** Map stored menu items to the public shape, preserving one level of children. */
+function mapMenu(items: { label: string; url: string; children?: MenuNode[] }[]): MenuNode[] {
+  return items.map((i) => ({
+    label: i.label,
+    url: i.url,
+    ...(i.children && i.children.length > 0 ? { children: mapMenu(i.children) } : {}),
+  }));
 }
 
 /** If the viewer has a valid session, build the admin toolbar context (server-driven). */
@@ -52,7 +70,7 @@ async function resolveAdminBar(app: FastifyInstance, req: FastifyRequest): Promi
   return {
     user: session.user.name,
     dashboardUrl: "/admin",
-    newPostUrl: "/admin/posts/new",
+    newPostUrl: "/admin/content/post/new",
     logoutUrl: "/admin/logout",
     editUrl: null,
   };
@@ -71,7 +89,7 @@ async function baseContext(app: FastifyInstance, req: FastifyRequest): Promise<B
       tagline: settings.tagline || "",
       baseUrl,
     },
-    menu: (menuRow?.items ?? []).map((i) => ({ label: i.label, url: i.url })),
+    menu: mapMenu(menuRow?.items ?? []),
     themeSettings: (theme?.settings as Record<string, unknown>) ?? {},
     seo: {
       description: settings.seoMetaDescription || undefined,
@@ -102,6 +120,44 @@ async function send(
   return reply.code(status).type("text/html").send(html ?? notBuiltPage());
 }
 
+/** Render a single post/page. Canonical + edit URL come from the post's own path. */
+async function renderSingle(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  base: BaseContext,
+  post: PostDTO,
+  view: "single" | "page",
+) {
+  const head = renderMetaTags(
+    buildMeta({
+      pageTitle: post.title,
+      siteTitle: base.site.title,
+      description: post.excerpt ?? base.seo.description,
+      image: post.featuredMedia?.url ? base.site.baseUrl + post.featuredMedia.url : base.seo.ogImage,
+      canonical: base.site.baseUrl + post.path,
+      meta: post.meta,
+      ...(view === "single" ? { ogType: "article" as const } : {}),
+      separator: base.seo.separator,
+      robots: base.seo.robots,
+      category: post.terms.find((t) => t.taxonomy === "category")?.name,
+    }),
+  );
+  return send(
+    req,
+    reply,
+    {
+      view,
+      title: post.title,
+      ...base,
+      ...(base.adminBar
+        ? { adminBar: { ...base.adminBar, editUrl: `/admin/content/${post.type}/${post.id}/edit` } }
+        : {}),
+      post,
+    },
+    head,
+  );
+}
+
 export async function publicRoutes(app: FastifyInstance): Promise<void> {
   // Home
   app.get("/", async (req, reply) => {
@@ -120,71 +176,53 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
     return send(req, reply, { view: "home", title: base.site.title, ...base, posts: items }, head);
   });
 
-  // Single post
-  app.get("/blog/:slug", async (req, reply) => {
+  // Two-segment URLs are generic: /:route/:slug resolves to a single post of a
+  // post type whose route is :route (e.g. /blog/hello, /products/widget), or
+  // falls back to a taxonomy archive (e.g. /category/news, /tag/launch).
+  app.get("/:route/:slug", async (req, reply) => {
     const base = await baseContext(app, req);
-    const slug = (req.params as { slug: string }).slug;
-    const post = await getPublishedBySlug(app.db, "post", slug);
-    if (!post) return render404(app, req, reply);
+    const { route, slug } = req.params as { route: string; slug: string };
+
+    // 1) Single post of a post type mounted at this route.
+    const postType = route ? await getPostTypeByRoute(app.db, route) : undefined;
+    if (postType) {
+      const post = await getPublishedBySlug(app.db, postType.slug, slug);
+      if (!post) return render404(app, req, reply);
+      return renderSingle(req, reply, base, post, "single");
+    }
+
+    // 2) Taxonomy archive at this route (category, tag, topic, …).
+    const result = await listPublishedByTerm(app.db, route, slug);
+    if (!result) {
+      // 3) Nested page (e.g. /demo/page-1): a child page under a parent page.
+      const nested = await getPublishedByPath(app.db, `/${route}/${slug}`);
+      if (nested) return renderSingle(req, reply, base, nested, "page");
+      return render404(app, req, reply);
+    }
     const head = renderMetaTags(
       buildMeta({
-        pageTitle: post.title,
+        pageTitle: result.term.name,
         siteTitle: base.site.title,
-        description: post.excerpt ?? base.seo.description,
-        image: post.featuredMedia?.url ? base.site.baseUrl + post.featuredMedia.url : base.seo.ogImage,
-        canonical: `${base.site.baseUrl}/blog/${post.slug}`,
-        meta: post.meta,
-        ogType: "article",
+        description: base.seo.description,
+        canonical: `${base.site.baseUrl}/${route}/${result.term.slug}`,
         separator: base.seo.separator,
         robots: base.seo.robots,
       }),
     );
-    return send(
-      req,
-      reply,
-      {
-        view: "single",
-        title: post.title,
-        ...base,
-        ...(base.adminBar ? { adminBar: { ...base.adminBar, editUrl: `/admin/posts/${post.id}/edit` } } : {}),
-        post,
-      },
-      head,
-    );
+    return send(req, reply, {
+      view: "archive",
+      title: result.term.name,
+      ...base,
+      posts: result.items,
+      archive: { label: result.taxonomyLabel, name: result.term.name, slug: result.term.slug },
+    }, head);
   });
-
-  // Category / tag archives
-  for (const kind of ["category", "tag"] as const) {
-    app.get(`/${kind}/:slug`, async (req, reply) => {
-      const base = await baseContext(app, req);
-      const slug = (req.params as { slug: string }).slug;
-      const result = await listPublishedByTaxonomy(app.db, kind, slug);
-      if (!result) return render404(app, req, reply);
-      const head = renderMetaTags(
-        buildMeta({
-          pageTitle: result.term.name,
-          siteTitle: base.site.title,
-          description: base.seo.description,
-          canonical: `${base.site.baseUrl}/${kind}/${result.term.slug}`,
-          separator: base.seo.separator,
-          robots: base.seo.robots,
-        }),
-      );
-      return send(req, reply, {
-        view: "archive",
-        title: result.term.name,
-        ...base,
-        posts: result.items,
-        archive: { kind, name: result.term.name, slug: result.term.slug },
-      }, head);
-    });
-  }
 
   // sitemap + robots
   app.get("/sitemap.xml", async (req, reply) => {
     const base = await baseContext(app, req);
     const entries = (await listPublishedForSitemap(app.db)).map((e) => ({
-      loc: `${base.site.baseUrl}${e.type === "page" ? "" : "/blog"}/${e.slug}`,
+      loc: `${base.site.baseUrl}${e.route ? `/${e.route}` : ""}/${e.slug}`,
       lastmod: e.updatedAt,
     }));
     entries.unshift({ loc: `${base.site.baseUrl}/`, lastmod: new Date().toISOString() });
@@ -196,36 +234,25 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
     return reply.type("text/plain").send(robotsTxt(base.site.baseUrl));
   });
 
-  // Page by top-level slug (must be registered last — matches any single segment)
+  // Top-level single segment: a page of the type mounted at the root route ("").
   app.get("/:slug", async (req, reply) => {
     const base = await baseContext(app, req);
     const slug = (req.params as { slug: string }).slug;
-    const post = await getPublishedBySlug(app.db, "page", slug);
+    const rootType = await getPostTypeByRoute(app.db, "");
+    if (!rootType) return render404(app, req, reply);
+    const post = await getPublishedBySlug(app.db, rootType.slug, slug);
+    // A child page's canonical URL is nested (/parent/child), so the bare slug 404s.
+    if (!post || post.parentId) return render404(app, req, reply);
+    return renderSingle(req, reply, base, post, "page");
+  });
+
+  // Deep nested pages (3+ segments, e.g. /a/b/c) resolve by full path.
+  app.get("/*", async (req, reply) => {
+    const base = await baseContext(app, req);
+    const path = (req.params as { "*": string })["*"];
+    const post = await getPublishedByPath(app.db, `/${path}`);
     if (!post) return render404(app, req, reply);
-    const head = renderMetaTags(
-      buildMeta({
-        pageTitle: post.title,
-        siteTitle: base.site.title,
-        description: post.excerpt ?? base.seo.description,
-        image: base.seo.ogImage,
-        canonical: `${base.site.baseUrl}/${post.slug}`,
-        meta: post.meta,
-        separator: base.seo.separator,
-        robots: base.seo.robots,
-      }),
-    );
-    return send(
-      req,
-      reply,
-      {
-        view: "page",
-        title: post.title,
-        ...base,
-        ...(base.adminBar ? { adminBar: { ...base.adminBar, editUrl: `/admin/pages/${post.id}/edit` } } : {}),
-        post,
-      },
-      head,
-    );
+    return renderSingle(req, reply, base, post, "page");
   });
 }
 

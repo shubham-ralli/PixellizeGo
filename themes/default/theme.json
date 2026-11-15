@@ -1,9 +1,0 @@
-{
-  "slug": "default",
-  "name": "Default",
-  "version": "1.0.0",
-  "description": "The default Pixellize theme — clean blog + pages.",
-  "settingsSchema": [
-    { "key": "accentColor", "label": "Accent color", "type": "color", "default": "#465fff" }
-  ]
-}
