@@ -1,0 +1,51 @@
+# ---- Dependencies ----
+node_modules/
+.pnpm-store/
+
+# ---- Environment / secrets (never commit) ----
+.env
+.env.local
+.env.*.local
+# NOTE: .env.example (template) and apps/admin/.env.development (non-secret dev config) ARE committed.
+
+# ---- Build output ----
+dist/
+build/
+*.tsbuildinfo
+# Admin SPA + public site are built into the server at build time:
+apps/server/public/admin/
+apps/server/public/site/
+apps/server/ssr/
+
+# ---- Uploaded media / site content (user data, not source) ----
+uploads/
+apps/server/uploads/
+
+# ---- Database dumps / backups (never commit site data) ----
+*.sql.gz
+*.sqlite
+*.sqlite3
+*.dump
+dumps/
+backups/
+# (Drizzle migrations in packages/database/migrations/ ARE committed — they are code.)
+
+# ---- Logs ----
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+
+# ---- Caches / coverage ----
+coverage/
+.cache/
+.vite/
+.turbo/
+
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~

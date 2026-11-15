@@ -1,0 +1,26 @@
+{
+  "name": "pixellize-cms",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Modular self-hosted CMS (Node.js + React + MySQL)",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "dev:server": "pnpm --filter @pixellize/server dev",
+    "dev:admin": "pnpm --filter @pixellize/admin dev",
+    "build": "pnpm --filter @pixellize/admin build && pnpm -r typecheck",
+    "start": "pnpm --filter @pixellize/server start",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "db:generate": "pnpm --filter @pixellize/database generate",
+    "db:migrate": "pnpm --filter @pixellize/database migrate",
+    "db:push": "pnpm --filter @pixellize/database push",
+    "db:seed": "pnpm --filter @pixellize/database seed"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}

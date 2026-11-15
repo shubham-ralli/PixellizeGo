@@ -1,0 +1,40 @@
+/* Pixellize admin toolbar — injected into the public site only for logged-in users. */
+#pcms-admin-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2147483000;
+  background: #1f2937;
+  color: #e5e7eb;
+  font-size: 13px;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.4;
+}
+#pcms-admin-bar .pcms-admin-bar__inner {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 16px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+#pcms-admin-bar .pcms-admin-bar__group {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+#pcms-admin-bar a {
+  color: #e5e7eb;
+  text-decoration: none;
+}
+#pcms-admin-bar a:hover {
+  color: #fff;
+  text-decoration: underline;
+}
+#pcms-admin-bar .pcms-admin-bar__edit {
+  font-weight: 600;
+  color: #93c5fd;
+}
+#pcms-admin-bar .pcms-admin-bar__user {
+  color: #9ca3af;
+}

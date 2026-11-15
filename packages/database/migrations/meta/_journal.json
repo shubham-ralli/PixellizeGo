@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1794734852547,
+      "tag": "0000_eminent_lockheed",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1794735502902,
+      "tag": "0001_robust_stingray",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1794737759670,
+      "tag": "0002_worried_loa",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1794740140149,
+      "tag": "0003_last_marrow",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1794742056294,
+      "tag": "0004_familiar_jocasta",
+      "breakpoints": true
+    }
+  ]
+}
