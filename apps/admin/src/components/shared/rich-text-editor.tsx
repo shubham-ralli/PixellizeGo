@@ -1,8 +1,10 @@
+import { MediaPicker } from "@/components/shared/media-picker";
 import { Button } from "@/components/ui/button";
+import Image from "@tiptap/extension-image";
 import Link from "@tiptap/extension-link";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 interface RichTextEditorProps {
   value: string;
@@ -33,13 +35,19 @@ function ToolbarButton({
 
 export function RichTextEditor({ value, onChange }: RichTextEditorProps) {
   const editor = useEditor({
-    extensions: [StarterKit, Link.configure({ openOnClick: false })],
+    extensions: [
+      StarterKit,
+      Link.configure({ openOnClick: false }),
+      Image.configure({ HTMLAttributes: { class: "editor-image" } }),
+    ],
     content: value,
     onUpdate: ({ editor }) => onChange(editor.getHTML()),
     editorProps: {
       attributes: { class: "prose-editor focus:outline-none" },
     },
   });
+
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   // Sync external value (e.g. after loading an existing post) without clobbering typing.
   useEffect(() => {
@@ -70,8 +78,17 @@ export function RichTextEditor({ value, onChange }: RichTextEditorProps) {
         <ToolbarButton label="Quote" active={editor.isActive("blockquote")} onClick={() => editor.chain().focus().toggleBlockquote().run()} />
         <ToolbarButton label="Code" active={editor.isActive("codeBlock")} onClick={() => editor.chain().focus().toggleCodeBlock().run()} />
         <ToolbarButton label="Link" active={editor.isActive("link")} onClick={setLink} />
+        <ToolbarButton label="🖼 Image" onClick={() => setPickerOpen(true)} />
       </div>
       <EditorContent editor={editor} className="min-h-[300px] px-4 py-3 text-sm text-gray-800 dark:text-gray-200" />
+
+      <MediaPicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={(m) => editor.chain().focus().setImage({ src: m.url, alt: m.altText ?? "" }).run()}
+        title="Insert image"
+        confirmLabel="Insert image"
+      />
     </div>
   );
 }

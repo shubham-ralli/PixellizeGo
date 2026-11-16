@@ -1,7 +1,8 @@
-import type { PostView } from "../../types";
+import type { CommentView, PostView } from "../../types";
+import { Comments } from "./Comments";
 import { formatDate } from "./date";
 
-export function Single({ post }: { post: PostView }) {
+export function Single({ post, comments }: { post: PostView; comments: CommentView[] }) {
   const cats = post.terms.filter((t) => t.taxonomy !== "tag");
   const tags = post.terms.filter((t) => t.taxonomy === "tag");
 
@@ -40,6 +41,8 @@ export function Single({ post }: { post: PostView }) {
             ))}
           </footer>
         )}
+
+        <Comments postId={post.id} comments={comments} />
       </div>
     </article>
   );

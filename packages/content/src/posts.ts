@@ -11,7 +11,7 @@ import {
   terms,
   users,
 } from "@pixellize/database";
-import { and, desc, eq, inArray, isNotNull, isNull, like, lte, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, like, lte, ne, or } from "drizzle-orm";
 
 export type PostType = string; // a post_types.slug — "post", "page", or any custom type
 export type PostStatus = "draft" | "published" | "scheduled";
@@ -320,7 +320,10 @@ export async function listPosts(
   const conds = [filter.trashed ? isNotNull(posts.deletedAt) : isNull(posts.deletedAt)];
   if (filter.type) conds.push(eq(posts.type, filter.type));
   if (filter.status) conds.push(eq(posts.status, filter.status));
-  if (filter.search) conds.push(like(posts.title, `%${filter.search}%`));
+  if (filter.search) {
+    const q = `%${filter.search}%`;
+    conds.push(or(like(posts.title, q), like(posts.excerpt, q), like(posts.content, q))!);
+  }
   const where = and(...conds);
 
   const limit = Math.min(filter.limit ?? 20, 100);
@@ -483,6 +486,54 @@ export async function listRevisions(db: Database, postId: number) {
     .orderBy(desc(revisions.createdAt))
     .limit(50);
   return rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() }));
+}
+
+/** One revision's full content (for viewing / restoring). */
+export async function getRevision(db: Database, revisionId: number) {
+  const r = (
+    await db
+      .select({ id: revisions.id, postId: revisions.postId, title: revisions.title, content: revisions.content, createdAt: revisions.createdAt })
+      .from(revisions)
+      .where(eq(revisions.id, revisionId))
+      .limit(1)
+  )[0];
+  if (!r) return undefined;
+  return { ...r, createdAt: r.createdAt.toISOString() };
+}
+
+/** Restore a post's title + content from an earlier revision (recorded as a new revision). */
+export async function restoreRevision(
+  db: Database,
+  postId: number,
+  revisionId: number,
+  authorId: number,
+): Promise<PostDTO> {
+  const rev = (await db.select().from(revisions).where(eq(revisions.id, revisionId)).limit(1))[0];
+  if (!rev || rev.postId !== postId) throw new ContentError("NOT_FOUND", "Revision not found");
+  await db.transaction(async (tx) => {
+    await tx.update(posts).set({ title: rev.title, content: rev.content }).where(eq(posts.id, postId));
+    await tx.insert(revisions).values({ postId, title: rev.title, content: rev.content, kind: "manual", authorId });
+  });
+  const dto = await getPost(db, postId);
+  if (!dto) throw new ContentError("NOT_FOUND", "Post not found after restore");
+  return dto;
+}
+
+/** Clone a post/page as a new draft (title + " (copy)"), copying content, terms, meta, parent. */
+export async function duplicatePost(db: Database, id: number, authorId: number): Promise<PostDTO> {
+  const src = await getPost(db, id);
+  if (!src) throw new ContentError("NOT_FOUND", "Post not found");
+  return createPost(db, authorId, {
+    type: src.type,
+    title: `${src.title} (copy)`,
+    excerpt: src.excerpt,
+    content: src.content,
+    status: "draft",
+    featuredMediaId: src.featuredMedia?.id ?? null,
+    parentId: src.parentId,
+    termIds: src.terms.map((t) => t.id),
+    meta: src.meta,
+  });
 }
 
 /** Flip due scheduled posts to published. Call from a cron-hit endpoint. */

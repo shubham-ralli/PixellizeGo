@@ -10,6 +10,16 @@ export {
   type ThemeManifest,
 } from "./themes.js";
 export {
+  PLUGINS_DIR,
+  PluginError,
+  syncPlugins,
+  listPlugins,
+  setPluginActive,
+  deletePlugin,
+  installPluginFromZip,
+  type PluginManifest,
+} from "./plugins.js";
+export {
   listMenus,
   getMenu,
   getMenuByLocation,

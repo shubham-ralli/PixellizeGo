@@ -104,6 +104,69 @@ export function generateSitemap(entries: SitemapEntry[]): string {
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`;
 }
 
+/** A sitemap index that points to paginated sub-sitemaps (for large sites). */
+export function generateSitemapIndex(sitemaps: { loc: string; lastmod?: string }[]): string {
+  const items = sitemaps
+    .map((s) => {
+      const parts = [`    <loc>${esc(s.loc)}</loc>`];
+      if (s.lastmod) parts.push(`    <lastmod>${s.lastmod.slice(0, 10)}</lastmod>`);
+      return `  <sitemap>\n${parts.join("\n")}\n  </sitemap>`;
+    })
+    .join("\n");
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${items}\n</sitemapindex>\n`;
+}
+
+/** BreadcrumbList JSON-LD (<script> tag) for a trail of {name, url}. */
+export function breadcrumbJsonLd(crumbs: { name: string; url: string }[]): string {
+  if (crumbs.length === 0) return "";
+  const data = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: crumbs.map((c, i) => ({
+      "@type": "ListItem",
+      position: i + 1,
+      name: c.name,
+      item: c.url,
+    })),
+  };
+  return `<script type="application/ld+json">${JSON.stringify(data).replace(/</g, "\\u003c")}</script>`;
+}
+
+export interface FeedItem {
+  title: string;
+  link: string;
+  description: string;
+  author?: string;
+  pubDate?: string; // ISO
+}
+
+/** A simple RSS 2.0 feed. */
+export function generateRss(channel: { title: string; link: string; description: string }, items: FeedItem[]): string {
+  const entries = items
+    .map((i) => {
+      const parts = [
+        `      <title>${esc(i.title)}</title>`,
+        `      <link>${esc(i.link)}</link>`,
+        `      <guid>${esc(i.link)}</guid>`,
+        `      <description><![CDATA[${i.description}]]></description>`,
+      ];
+      if (i.author) parts.push(`      <dc:creator>${esc(i.author)}</dc:creator>`);
+      if (i.pubDate) parts.push(`      <pubDate>${new Date(i.pubDate).toUTCString()}</pubDate>`);
+      return `    <item>\n${parts.join("\n")}\n    </item>`;
+    })
+    .join("\n");
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>${esc(channel.title)}</title>
+    <link>${esc(channel.link)}</link>
+    <description>${esc(channel.description)}</description>
+${entries}
+  </channel>
+</rss>
+`;
+}
+
 export function robotsTxt(siteUrl: string): string {
   const base = siteUrl.replace(/\/$/, "");
   return `User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api\n\nSitemap: ${base}/sitemap.xml\n`;

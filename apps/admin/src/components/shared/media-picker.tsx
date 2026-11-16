@@ -238,7 +238,7 @@ export function MediaPicker({
                           )}
                           <div className="flex aspect-square items-center justify-center bg-gray-50 dark:bg-white/5">
                             {isImage(m) ? (
-                              <img src={m.url} alt={m.altText ?? m.originalName} className="h-full w-full object-cover" />
+                              <img src={m.thumbnailUrl ?? m.url} alt={m.altText ?? m.originalName} className="h-full w-full object-cover" />
                             ) : (
                               <span className="px-2 text-center text-[10px] text-gray-500">{m.mimeType}</span>
                             )}

@@ -29,6 +29,7 @@ export interface MediaItem {
   width: number | null;
   height: number | null;
   url: string;
+  thumbnailUrl: string | null;
   altText: string | null;
   createdAt: string;
 }
@@ -145,8 +146,19 @@ export const autosavePost = (id: number, patch: { title?: string; content?: stri
     method: "POST",
     body: JSON.stringify(patch),
   });
-export const listRevisions = (id: number) =>
-  apiFetch<{ id: number; title: string; kind: string; createdAt: string }[]>(`/api/posts/${id}/revisions`);
+export interface Revision {
+  id: number;
+  title: string;
+  kind: string;
+  createdAt: string;
+}
+export const listRevisions = (id: number) => apiFetch<Revision[]>(`/api/posts/${id}/revisions`);
+export const getRevision = (postId: number, revId: number) =>
+  apiFetch<{ id: number; title: string; content: string | null; createdAt: string }>(`/api/posts/${postId}/revisions/${revId}`);
+export const restoreRevision = (postId: number, revId: number) =>
+  apiFetch<PostDTO>(`/api/posts/${postId}/revisions/${revId}/restore`, { method: "POST", body: "{}" });
+export const duplicatePost = (id: number) =>
+  apiFetch<PostDTO>(`/api/posts/${id}/duplicate`, { method: "POST", body: "{}" });
 
 /* Post types (generic — posts, pages, and any custom post type) */
 export type PostTypeInput = { slug?: string; label: string; labelPlural: string; route?: string; hasArchive?: boolean };
@@ -168,10 +180,38 @@ export const updateTerm = (id: number, body: TermInput) =>
   apiFetch<Term>(`/api/terms/${id}`, { method: "PATCH", body: JSON.stringify(body) });
 export const deleteTerm = (id: number) => apiFetch(`/api/terms/${id}`, { method: "DELETE" });
 
+/* Comments (moderation) */
+export type CommentStatus = "pending" | "approved" | "spam" | "trash";
+export interface AdminComment {
+  id: number;
+  postId: number;
+  parentId: number | null;
+  postTitle: string | null;
+  postType: string | null;
+  authorName: string;
+  authorEmail: string;
+  authorUrl: string | null;
+  content: string;
+  isStaff: boolean;
+  status: CommentStatus;
+  createdAt: string;
+}
+export const listComments = (status?: CommentStatus) =>
+  apiFetch<{ items: AdminComment[]; total: number }>(`/api/comments${status ? `?status=${status}` : ""}`);
+export const setCommentStatus = (id: number, status: CommentStatus) =>
+  apiFetch(`/api/comments/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
+export const replyComment = (id: number, content: string) =>
+  apiFetch(`/api/comments/${id}/reply`, { method: "POST", body: JSON.stringify({ content }) });
+export const deleteComment = (id: number) => apiFetch(`/api/comments/${id}`, { method: "DELETE" });
+export const bulkComments = (action: "approve" | "spam" | "trash" | "delete", ids: number[]) =>
+  apiFetch<{ affected: number }>("/api/comments/bulk", { method: "POST", body: JSON.stringify({ action, ids }) });
+
 /* Media */
-export const listMedia = (params: { limit?: number; offset?: number } = {}) => {
+export const listMedia = (
+  params: { limit?: number; offset?: number; type?: "image" | "document"; search?: string } = {},
+) => {
   const qs = new URLSearchParams();
-  for (const [k, v] of Object.entries(params)) if (v !== undefined) qs.set(k, String(v));
+  for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== "") qs.set(k, String(v));
   return apiFetch<{ items: MediaItem[]; total: number }>(`/api/media?${qs.toString()}`);
 };
 export async function uploadMedia(file: File): Promise<MediaItem> {
@@ -289,3 +329,26 @@ export interface Theme {
 export const listThemes = () => apiFetch<Theme[]>("/api/themes");
 export const activateTheme = (slug: string) =>
   apiFetch(`/api/themes/${slug}/activate`, { method: "POST", body: JSON.stringify({}) });
+
+/* Plugins */
+export interface Plugin {
+  id: number;
+  slug: string;
+  name: string;
+  version: string;
+  description: string | null;
+  author: string | null;
+  isActive: boolean;
+}
+export const listPlugins = () => apiFetch<Plugin[]>("/api/plugins");
+export const setPluginActive = (slug: string, active: boolean) =>
+  apiFetch(`/api/plugins/${slug}/active`, { method: "POST", body: JSON.stringify({ active }) });
+export const deletePlugin = (slug: string) => apiFetch(`/api/plugins/${slug}`, { method: "DELETE" });
+export async function uploadPlugin(file: File): Promise<Plugin> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${API_BASE}/api/plugins`, { method: "POST", credentials: "include", body: form });
+  const body = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(body?.message ?? "Upload failed");
+  return body as Plugin;
+}

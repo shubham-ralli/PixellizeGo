@@ -1,6 +1,6 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createMedia, deleteMedia } from "@pixellize/media";
+import { createMedia, deleteMedia, listMedia } from "@pixellize/media";
 import { type Database, createDatabase, postTypes, roles, taxonomies } from "@pixellize/database";
 import { migrate } from "drizzle-orm/mysql2/migrator";
 import mysql from "mysql2/promise";
@@ -51,6 +51,7 @@ beforeAll(async () => {
 
   await pool.query("SET FOREIGN_KEY_CHECKS=0");
   for (const t of [
+    "comments",
     "post_terms",
     "post_meta",
     "revisions",
@@ -248,7 +249,25 @@ describe("Phase 2 content API", () => {
     expect(row.width).toBe(1);
     expect(row.height).toBe(1);
     expect(row.url).toMatch(/^\/uploads\//);
+    expect(row.thumbnailUrl).toBeNull(); // 1x1 is smaller than the thumb box
     await deleteMedia(db, row.id);
+  });
+
+  it("filters media by type (image vs document)", async () => {
+    const img = await createMedia(db, { buffer: PNG_1X1, originalName: "pic.png", mimeType: "image/png" });
+    const pdf = await createMedia(db, {
+      buffer: Buffer.from("%PDF-1.4 test"),
+      originalName: "doc.pdf",
+      mimeType: "application/pdf",
+    });
+    const images = await listMedia(db, { type: "image" });
+    const docs = await listMedia(db, { type: "document" });
+    expect(images.items.every((m) => m.mimeType.startsWith("image/"))).toBe(true);
+    expect(images.items.some((m) => m.id === img.id)).toBe(true);
+    expect(docs.items.some((m) => m.id === pdf.id)).toBe(true);
+    expect(docs.items.every((m) => !m.mimeType.startsWith("image/"))).toBe(true);
+    await deleteMedia(db, img.id);
+    await deleteMedia(db, pdf.id);
   });
 
   it("reflects content counts on the dashboard", async () => {
@@ -442,6 +461,411 @@ describe("Hierarchical pages", () => {
     // A post at /blog/... must not be reachable as a nested page.
     const miss = await app.inject({ method: "GET", url: "/demo/not-a-child?__json=1" });
     expect(miss.statusCode).toBe(404);
+  });
+});
+
+describe("Comments", () => {
+  let cookie = "";
+  let postSlug = "";
+  let postId = 0;
+
+  beforeAll(async () => {
+    const login = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { email: "admin@example.com", password: "supersecret123" },
+    });
+    cookie = cookieHeaderFrom(login);
+    const post = await app.inject({
+      method: "POST",
+      url: "/api/posts",
+      headers: { cookie },
+      payload: { type: "post", title: "Commentable", content: "<p>hi</p>", status: "published" },
+    });
+    postId = post.json().id;
+    postSlug = post.json().slug;
+  });
+
+  it("accepts a public comment as pending, hidden until approved", async () => {
+    const submit = await app.inject({
+      method: "POST",
+      url: "/api/comments",
+      payload: { postId, authorName: "Visitor", authorEmail: "v@example.com", content: "Nice post!" },
+    });
+    expect(submit.statusCode).toBe(201);
+    expect(submit.json().pending).toBe(true);
+
+    // Not visible publicly yet.
+    const page = await app.inject({ method: "GET", url: `/blog/${postSlug}?__json=1` });
+    expect(page.json().comments).toHaveLength(0);
+
+    // Shows in the moderation queue.
+    const queue = await app.inject({ method: "GET", url: "/api/comments?status=pending", headers: { cookie } });
+    expect(queue.json().items.some((c: { authorName: string }) => c.authorName === "Visitor")).toBe(true);
+  });
+
+  it("renders a comment publicly once approved", async () => {
+    const queue = await app.inject({ method: "GET", url: "/api/comments?status=pending", headers: { cookie } });
+    const id = queue.json().items[0].id;
+    const approve = await app.inject({
+      method: "PATCH",
+      url: `/api/comments/${id}`,
+      headers: { cookie },
+      payload: { status: "approved" },
+    });
+    expect(approve.statusCode).toBe(200);
+
+    const page = await app.inject({ method: "GET", url: `/blog/${postSlug}?__json=1` });
+    expect(page.json().comments).toHaveLength(1);
+    expect(page.json().comments[0].authorName).toBe("Visitor");
+    expect(page.json().comments[0].authorEmail).toBeUndefined(); // email never exposed publicly
+  });
+
+  it("lets an admin reply, shown publicly as a staff reply under the parent", async () => {
+    const queue = await app.inject({ method: "GET", url: "/api/comments?status=approved", headers: { cookie } });
+    const parent = queue.json().items.find((c: { authorName: string }) => c.authorName === "Visitor");
+    const reply = await app.inject({
+      method: "POST",
+      url: `/api/comments/${parent.id}/reply`,
+      headers: { cookie },
+      payload: { content: "Thanks for reading — glad it helped!" },
+    });
+    expect(reply.statusCode).toBe(201);
+
+    const page = await app.inject({ method: "GET", url: `/blog/${postSlug}?__json=1` });
+    const staff = page.json().comments.find((c: { isStaff: boolean }) => c.isStaff);
+    expect(staff).toBeDefined();
+    expect(staff.parentId).toBe(parent.id);
+    expect(staff.authorName).toBe("Site Admin"); // the logged-in admin
+  });
+
+  it("approves a pending parent when an admin replies to it", async () => {
+    const submit = await app.inject({
+      method: "POST",
+      url: "/api/comments",
+      payload: { postId, authorName: "Curious Kim", authorEmail: "kim@example.com", content: "Any ETA on themes?" },
+    });
+    expect(submit.statusCode).toBe(201);
+    const pending = await app.inject({ method: "GET", url: "/api/comments?status=pending", headers: { cookie } });
+    const kim = pending.json().items.find((c: { authorName: string }) => c.authorName === "Curious Kim");
+    expect(kim).toBeDefined();
+
+    await app.inject({
+      method: "POST",
+      url: `/api/comments/${kim.id}/reply`,
+      headers: { cookie },
+      payload: { content: "Soon! Working on dynamic theme loading." },
+    });
+
+    const page = await app.inject({ method: "GET", url: `/blog/${postSlug}?__json=1` });
+    const parent = page.json().comments.find((c: { authorName: string }) => c.authorName === "Curious Kim");
+    expect(parent).toBeDefined(); // pending parent is now approved and visible
+    const reply = page.json().comments.find((c: { parentId: number | null }) => c.parentId === kim.id);
+    expect(reply?.isStaff).toBe(true);
+  });
+
+  it("rejects an invalid comment and requires auth for moderation", async () => {
+    const bad = await app.inject({
+      method: "POST",
+      url: "/api/comments",
+      payload: { postId, authorName: "X", authorEmail: "not-an-email", content: "" },
+    });
+    expect(bad.statusCode).toBe(400);
+
+    const noauth = await app.inject({ method: "GET", url: "/api/comments" });
+    expect(noauth.statusCode).toBe(401);
+  });
+});
+
+describe("Editor: duplicate + revision restore", () => {
+  let cookie = "";
+  let postId = 0;
+
+  beforeAll(async () => {
+    const login = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { email: "admin@example.com", password: "supersecret123" },
+    });
+    cookie = cookieHeaderFrom(login);
+    const post = await app.inject({
+      method: "POST",
+      url: "/api/posts",
+      headers: { cookie },
+      payload: { type: "post", title: "Original", content: "<p>v1</p>", status: "published" },
+    });
+    postId = post.json().id;
+  });
+
+  it("duplicates a post as a draft copy", async () => {
+    const dup = await app.inject({ method: "POST", url: `/api/posts/${postId}/duplicate`, headers: { cookie } });
+    expect(dup.statusCode).toBe(201);
+    expect(dup.json().title).toBe("Original (copy)");
+    expect(dup.json().status).toBe("draft");
+    expect(dup.json().id).not.toBe(postId);
+    expect(dup.json().slug).not.toBe("original");
+  });
+
+  it("restores content from an earlier revision", async () => {
+    // Edit the post so v1 becomes an older revision.
+    await app.inject({
+      method: "PATCH",
+      url: `/api/posts/${postId}`,
+      headers: { cookie },
+      payload: { title: "Original", content: "<p>v2 changed</p>", status: "published" },
+    });
+    const revs = await app.inject({ method: "GET", url: `/api/posts/${postId}/revisions`, headers: { cookie } });
+    const list = revs.json();
+    // Find the revision whose content is v1.
+    let v1Id = 0;
+    for (const r of list) {
+      const full = await app.inject({ method: "GET", url: `/api/posts/${postId}/revisions/${r.id}`, headers: { cookie } });
+      if (full.json().content === "<p>v1</p>") v1Id = r.id;
+    }
+    expect(v1Id).toBeGreaterThan(0);
+
+    const restored = await app.inject({
+      method: "POST",
+      url: `/api/posts/${postId}/revisions/${v1Id}/restore`,
+      headers: { cookie },
+    });
+    expect(restored.statusCode).toBe(200);
+    expect(restored.json().content).toBe("<p>v1</p>");
+  });
+});
+
+describe("Search", () => {
+  let cookie = "";
+
+  beforeAll(async () => {
+    const login = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { email: "admin@example.com", password: "supersecret123" },
+    });
+    cookie = cookieHeaderFrom(login);
+    await app.inject({
+      method: "POST",
+      url: "/api/posts",
+      headers: { cookie },
+      payload: {
+        type: "post",
+        title: "A Totally Unrelated Headline",
+        content: "<p>This body mentions zorblax prominently.</p>",
+        status: "published",
+      },
+    });
+  });
+
+  it("public search matches body content, not just the title", async () => {
+    const res = await app.inject({ method: "GET", url: "/search?q=zorblax&__json=1" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().view).toBe("search");
+    expect(res.json().searchQuery).toBe("zorblax");
+    expect(res.json().posts.some((p: { title: string }) => p.title === "A Totally Unrelated Headline")).toBe(true);
+  });
+
+  it("empty query returns no results", async () => {
+    const res = await app.inject({ method: "GET", url: "/search?__json=1" });
+    expect(res.json().posts).toHaveLength(0);
+  });
+
+  it("admin content search also matches body content", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/posts?type=post&search=zorblax", headers: { cookie } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().items.some((p: { title: string }) => p.title === "A Totally Unrelated Headline")).toBe(true);
+  });
+});
+
+describe("SEO: sitemap + breadcrumbs", () => {
+  let cookie = "";
+  let slug = "";
+
+  beforeAll(async () => {
+    const login = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { email: "admin@example.com", password: "supersecret123" },
+    });
+    cookie = cookieHeaderFrom(login);
+    const cat = await app.inject({
+      method: "POST",
+      url: "/api/taxonomies/category/terms",
+      headers: { cookie },
+      payload: { name: "SEO Topics" },
+    });
+    const post = await app.inject({
+      method: "POST",
+      url: "/api/posts",
+      headers: { cookie },
+      payload: { type: "post", title: "SEO Breadcrumb Post", status: "published", termIds: [cat.json().id] },
+    });
+    slug = post.json().slug;
+  });
+
+  it("serves a sitemap (urlset) and a numbered sub-sitemap", async () => {
+    const sm = await app.inject({ method: "GET", url: "/sitemap.xml" });
+    expect(sm.statusCode).toBe(200);
+    expect(sm.body).toContain("<urlset");
+    expect(sm.body).toContain(`/blog/${slug}`);
+
+    const sub = await app.inject({ method: "GET", url: "/sitemap-1.xml" });
+    expect(sub.statusCode).toBe(200);
+    expect(sub.body).toContain("<urlset");
+  });
+
+  it("embeds BreadcrumbList JSON-LD on a single post", async () => {
+    const page = await app.inject({ method: "GET", url: `/blog/${slug}` });
+    expect(page.body).toContain('"@type":"BreadcrumbList"');
+    expect(page.body).toContain("SEO Topics"); // the category crumb
+    expect(page.body).toContain("SEO Breadcrumb Post");
+  });
+});
+
+describe("Reading settings: static homepage, posts page, RSS feed", () => {
+  let cookie = "";
+  let pageId = 0;
+  let pageSlug = "";
+
+  beforeAll(async () => {
+    const login = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { email: "admin@example.com", password: "supersecret123" },
+    });
+    cookie = cookieHeaderFrom(login);
+    const pg = await app.inject({
+      method: "POST",
+      url: "/api/posts",
+      headers: { cookie },
+      payload: { type: "page", title: "Welcome Home", content: "<p>home page body</p>", status: "published" },
+    });
+    pageId = pg.json().id;
+    pageSlug = pg.json().slug;
+  });
+
+  it("uses a static page as the homepage when configured", async () => {
+    await app.inject({
+      method: "PUT",
+      url: "/api/settings",
+      headers: { cookie },
+      payload: { homepageType: "page", homepagePageId: String(pageId) },
+    });
+    const home = await app.inject({ method: "GET", url: "/?__json=1" });
+    expect(home.json().view).toBe("page");
+    expect(home.json().post.title).toBe("Welcome Home");
+    // reset
+    await app.inject({ method: "PUT", url: "/api/settings", headers: { cookie }, payload: { homepageType: "posts" } });
+  });
+
+  it("renders the blog feed at the configured posts page URL", async () => {
+    await app.inject({
+      method: "PUT",
+      url: "/api/settings",
+      headers: { cookie },
+      payload: { postsPageId: String(pageId) },
+    });
+    const res = await app.inject({ method: "GET", url: `/${pageSlug}?__json=1` });
+    expect(res.json().view).toBe("archive");
+    expect(res.json().archive.name).toBe("Welcome Home");
+    await app.inject({ method: "PUT", url: "/api/settings", headers: { cookie }, payload: { postsPageId: "" } });
+  });
+
+  it("serves an RSS feed", async () => {
+    const feed = await app.inject({ method: "GET", url: "/feed.xml" });
+    expect(feed.statusCode).toBe(200);
+    expect(feed.headers["content-type"]).toContain("rss");
+    expect(feed.body).toContain("<rss");
+    expect(feed.body).toContain("<item>");
+  });
+});
+
+describe("WordPress-style body classes", () => {
+  let cookie = "";
+  let postSlug = "";
+  let postId = 0;
+  let pageSlug = "";
+  let pageId = 0;
+
+  beforeAll(async () => {
+    const login = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { email: "admin@example.com", password: "supersecret123" },
+    });
+    cookie = cookieHeaderFrom(login);
+    const post = await app.inject({
+      method: "POST",
+      url: "/api/posts",
+      headers: { cookie },
+      payload: { type: "post", title: "Body Class Post", status: "published" },
+    });
+    postId = post.json().id;
+    postSlug = post.json().slug;
+    const page = await app.inject({
+      method: "POST",
+      url: "/api/posts",
+      headers: { cookie },
+      payload: { type: "page", title: "Body Class Page", status: "published" },
+    });
+    pageId = page.json().id;
+    pageSlug = page.json().slug;
+  });
+
+  it("adds single/post classes to a blog post body", async () => {
+    const res = await app.inject({ method: "GET", url: `/blog/${postSlug}` });
+    const m = res.body.match(/<body class="([^"]*)"/);
+    expect(m).not.toBeNull();
+    const cls = m![1];
+    expect(cls).toContain("single");
+    expect(cls).toContain("single-post");
+    expect(cls).toContain("post");
+    expect(cls).toContain(`post-id-${postId}`);
+  });
+
+  it("adds page/template classes to a page body", async () => {
+    const res = await app.inject({ method: "GET", url: `/${pageSlug}` });
+    const cls = res.body.match(/<body class="([^"]*)"/)![1];
+    expect(cls).toContain("page");
+    expect(cls).toContain(`page-id-${pageId}`);
+    expect(cls).toContain("page-template-default");
+  });
+});
+
+describe("Pagination", () => {
+  let cookie = "";
+
+  beforeAll(async () => {
+    const login = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { email: "admin@example.com", password: "supersecret123" },
+    });
+    cookie = cookieHeaderFrom(login);
+    // Ensure enough published posts to span more than one page (PER_PAGE = 9).
+    for (let i = 0; i < 11; i++) {
+      await app.inject({
+        method: "POST",
+        url: "/api/posts",
+        headers: { cookie },
+        payload: { type: "post", title: `Paged Post ${i}`, status: "published" },
+      });
+    }
+  });
+
+  it("caps the home feed per page and reports total pages", async () => {
+    const p1 = await app.inject({ method: "GET", url: "/?__json=1" });
+    expect(p1.json().posts.length).toBeLessThanOrEqual(9);
+    expect(p1.json().pagination.page).toBe(1);
+    expect(p1.json().pagination.totalPages).toBeGreaterThanOrEqual(2);
+  });
+
+  it("returns a different set on page 2", async () => {
+    const p1 = await app.inject({ method: "GET", url: "/?__json=1" });
+    const p2 = await app.inject({ method: "GET", url: "/?page=2&__json=1" });
+    expect(p2.json().pagination.page).toBe(2);
+    expect(p2.json().posts.length).toBeGreaterThanOrEqual(1);
+    expect(p2.json().posts[0].id).not.toBe(p1.json().posts[0].id);
   });
 });
 

@@ -16,6 +16,8 @@ export async function mediaRoutes(app: FastifyInstance): Promise<void> {
       .object({
         limit: z.coerce.number().int().positive().max(100).optional(),
         offset: z.coerce.number().int().min(0).optional(),
+        type: z.enum(["image", "document"]).optional(),
+        search: z.string().max(200).optional(),
       })
       .parse(request.query);
     return listMedia(app.db, q);

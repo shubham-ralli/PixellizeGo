@@ -1,3 +1,17 @@
+CREATE TABLE `comments` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`post_id` int NOT NULL,
+	`parent_id` int,
+	`author_name` varchar(120) NOT NULL,
+	`author_email` varchar(190) NOT NULL,
+	`author_url` varchar(200),
+	`content` text NOT NULL,
+	`is_staff` boolean NOT NULL DEFAULT false,
+	`status` enum('pending','approved','spam','trash') NOT NULL DEFAULT 'pending',
+	`created_at` timestamp NOT NULL DEFAULT (now()),
+	CONSTRAINT `comments_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
 CREATE TABLE `media` (
 	`id` int AUTO_INCREMENT NOT NULL,
 	`filename` varchar(255) NOT NULL,
@@ -8,6 +22,8 @@ CREATE TABLE `media` (
 	`height` int,
 	`path` varchar(512) NOT NULL,
 	`url` varchar(512) NOT NULL,
+	`thumbnail_path` varchar(512),
+	`thumbnail_url` varchar(512),
 	`alt_text` varchar(255),
 	`uploaded_by_id` int,
 	`created_at` timestamp NOT NULL DEFAULT (now()),
@@ -173,6 +189,7 @@ CREATE TABLE `users` (
 	CONSTRAINT `users_email_unq` UNIQUE(`email`)
 );
 --> statement-breakpoint
+ALTER TABLE `comments` ADD CONSTRAINT `comments_post_id_posts_id_fk` FOREIGN KEY (`post_id`) REFERENCES `posts`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE `media` ADD CONSTRAINT `media_uploaded_by_id_users_id_fk` FOREIGN KEY (`uploaded_by_id`) REFERENCES `users`(`id`) ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE `post_meta` ADD CONSTRAINT `post_meta_post_id_posts_id_fk` FOREIGN KEY (`post_id`) REFERENCES `posts`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE `post_terms` ADD CONSTRAINT `post_terms_post_id_posts_id_fk` FOREIGN KEY (`post_id`) REFERENCES `posts`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -184,6 +201,8 @@ ALTER TABLE `revisions` ADD CONSTRAINT `revisions_author_id_users_id_fk` FOREIGN
 ALTER TABLE `sessions` ADD CONSTRAINT `sessions_user_id_users_id_fk` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE `terms` ADD CONSTRAINT `terms_taxonomy_id_taxonomies_id_fk` FOREIGN KEY (`taxonomy_id`) REFERENCES `taxonomies`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE `users` ADD CONSTRAINT `users_role_id_roles_id_fk` FOREIGN KEY (`role_id`) REFERENCES `roles`(`id`) ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX `comments_post_idx` ON `comments` (`post_id`);--> statement-breakpoint
+CREATE INDEX `comments_status_idx` ON `comments` (`status`);--> statement-breakpoint
 CREATE INDEX `media_created_idx` ON `media` (`created_at`);--> statement-breakpoint
 CREATE INDEX `menus_location_idx` ON `menus` (`location`);--> statement-breakpoint
 CREATE INDEX `post_terms_term_idx` ON `post_terms` (`term_id`);--> statement-breakpoint

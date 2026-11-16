@@ -102,6 +102,16 @@ export function SeoPanel({
   const effTitle = resolveTokens(meta.metaTitle || DEFAULT_TITLE_TEMPLATE, tokenVars);
   const effDesc = meta.metaDescription || excerpt || "";
   const url = absoluteUrl(`${urlPrefix}/${slug || "sample-slug"}`);
+  const ogTitle = meta.ogTitle || effTitle;
+  const ogDesc = meta.ogDescription || effDesc;
+  const ogImage = meta.ogImage || featuredUrl || "";
+  const domain = (() => {
+    try {
+      return new URL(url).hostname.replace(/^www\./, "");
+    } catch {
+      return "";
+    }
+  })();
 
   const insertVar = (token: string) => {
     const cur = meta.metaTitle ?? "";
@@ -113,11 +123,9 @@ export function SeoPanel({
     <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/3">
       <h3 className="mb-4 text-sm font-semibold text-gray-800 dark:text-white/90">SEO &amp; Open Graph</h3>
 
-      {/* Google / social snippet preview */}
+      {/* Search result preview */}
+      <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-gray-400">Search preview</p>
       <div className="mb-5 overflow-hidden rounded-xl border border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-white/3">
-        {featuredUrl && (
-          <img src={featuredUrl} alt="" className="h-36 w-full object-cover" />
-        )}
         <div className="p-4">
           <p className="truncate text-xs text-green-700 dark:text-green-500">{url}</p>
           <p className="truncate text-base font-medium text-[#1a0dab] dark:text-blue-400">
@@ -125,6 +133,27 @@ export function SeoPanel({
           </p>
           <p className="mt-0.5 line-clamp-2 text-sm text-gray-600 dark:text-gray-400">
             {effDesc || "Your meta description will appear here…"}
+          </p>
+        </div>
+      </div>
+
+      {/* Social share card preview (Open Graph / Twitter) */}
+      <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-gray-400">Social share preview</p>
+      <div className="mb-5 overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/3">
+        <div className="flex aspect-[1.91/1] w-full items-center justify-center bg-gray-100 dark:bg-white/5">
+          {ogImage ? (
+            <img src={ogImage} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <span className="text-xs text-gray-400">No image — add a featured or OG image</span>
+          )}
+        </div>
+        <div className="border-t border-gray-100 p-3 dark:border-gray-800">
+          <p className="truncate text-[11px] uppercase tracking-wide text-gray-400">{domain}</p>
+          <p className="mt-0.5 truncate text-sm font-semibold text-gray-800 dark:text-white/90">
+            {ogTitle || "Your title here"}
+          </p>
+          <p className="mt-0.5 line-clamp-2 text-xs text-gray-500 dark:text-gray-400">
+            {ogDesc || "Your description will appear here…"}
           </p>
         </div>
       </div>

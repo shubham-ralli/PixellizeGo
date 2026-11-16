@@ -2,7 +2,7 @@ import { PageMeta } from "@/components/shared/page-meta";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { type MediaItem, deleteMedia, listMedia, updateMediaAlt, uploadMedia } from "@/lib/cms-api";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 
 function formatSize(bytes: number): string {
@@ -23,20 +23,29 @@ export default function MediaPage() {
   const [alt, setAlt] = useState("");
   const [copied, setCopied] = useState(false);
   const [checked, setChecked] = useState<Set<number>>(new Set());
+  const [filter, setFilter] = useState<"" | "image" | "document">("");
+  const [search, setSearch] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
 
   const selectedId = params.get("item");
   const selected = items.find((m) => String(m.id) === selectedId) ?? null;
 
-  const load = () =>
-    listMedia({ limit: 100 })
-      .then((r) => {
-        setItems(r.items);
-        setTotal(r.total);
-        setChecked(new Set());
-      })
-      .catch((e) => setError(e.message));
-  useEffect(() => void load(), []);
+  const load = useCallback(
+    () =>
+      listMedia({ limit: 100, type: filter || undefined })
+        .then((r) => {
+          setItems(r.items);
+          setTotal(r.total);
+          setChecked(new Set());
+        })
+        .catch((e) => setError(e.message)),
+    [filter],
+  );
+  useEffect(() => void load(), [load]);
+
+  const visible = items.filter(
+    (m) => !search || m.originalName.toLowerCase().includes(search.toLowerCase()),
+  );
   useEffect(() => {
     setAlt(selected?.altText ?? "");
     setCopied(false);
@@ -134,6 +143,32 @@ export default function MediaPage() {
         </div>
       )}
 
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex gap-4 text-sm">
+          {([
+            ["", "All"],
+            ["image", "Images"],
+            ["document", "Documents"],
+          ] as const).map(([v, label]) => (
+            <button
+              key={v}
+              onClick={() => setFilter(v)}
+              className={filter === v ? "font-medium text-brand-600 dark:text-brand-400" : "text-gray-500"}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <Input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search media…"
+          aria-label="Search media"
+          className="h-9 w-56 text-sm"
+        />
+      </div>
+
       {items.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
@@ -148,13 +183,13 @@ export default function MediaPage() {
         </div>
       )}
 
-      {items.length === 0 ? (
+      {visible.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-gray-300 py-16 text-center text-gray-400 dark:border-gray-700">
-          No media yet. Click Upload to add files.
+          {items.length === 0 ? "No media yet. Click Upload to add files." : "No media matches your filter."}
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
-          {items.map((m) => (
+          {visible.map((m) => (
             <div
               key={m.id}
               className={`group relative overflow-hidden rounded-xl border bg-white dark:bg-white/3 ${
@@ -172,7 +207,7 @@ export default function MediaPage() {
               <button onClick={() => open(m)} className="block w-full text-left">
                 <div className="flex aspect-square items-center justify-center bg-gray-50 dark:bg-white/5">
                   {isImage(m) ? (
-                    <img src={m.url} alt={m.altText ?? m.originalName} className="h-full w-full object-cover" />
+                    <img src={m.thumbnailUrl ?? m.url} alt={m.altText ?? m.originalName} className="h-full w-full object-cover" />
                   ) : (
                     <span className="px-2 text-center text-xs text-gray-500">{m.mimeType}</span>
                   )}

@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { type Database, media, type MediaRow } from "@pixellize/database";
 import { dateKey, getStorage } from "@pixellize/storage";
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, like, or, sql } from "drizzle-orm";
 import sharp from "sharp";
+
+const THUMB_MAX = 400; // longest edge of the generated thumbnail
 
 const EXT_BY_MIME: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -40,18 +42,34 @@ export async function createMedia(db: Database, input: UploadInput): Promise<Med
 
   let width: number | null = null;
   let height: number | null = null;
-  if (input.mimeType.startsWith("image/") && input.mimeType !== "image/svg+xml") {
-    try {
-      const meta = await sharp(input.buffer).metadata();
-      width = meta.width ?? null;
-      height = meta.height ?? null;
-    } catch {
-      // Not a decodable image; store as-is without dimensions.
-    }
-  }
+  let thumbnailPath: string | null = null;
+  let thumbnailUrl: string | null = null;
+  const isRaster = input.mimeType.startsWith("image/") && input.mimeType !== "image/svg+xml";
 
   const key = dateKey(`${randomUUID()}.${ext}`);
   const stored = await getStorage().save(key, input.buffer);
+
+  if (isRaster) {
+    try {
+      const img = sharp(input.buffer);
+      const meta = await img.metadata();
+      width = meta.width ?? null;
+      height = meta.height ?? null;
+      // Only generate a thumbnail when the image is bigger than the thumb box.
+      if ((width ?? 0) > THUMB_MAX || (height ?? 0) > THUMB_MAX) {
+        const thumbBuf = await img
+          .resize(THUMB_MAX, THUMB_MAX, { fit: "inside", withoutEnlargement: true })
+          .webp({ quality: 78 })
+          .toBuffer();
+        const thumbKey = key.replace(/\.[^.]+$/, "") + "-thumb.webp";
+        const thumbStored = await getStorage().save(thumbKey, thumbBuf);
+        thumbnailPath = thumbStored.key;
+        thumbnailUrl = thumbStored.url;
+      }
+    } catch {
+      // Not a decodable image; store as-is without dimensions/thumbnail.
+    }
+  }
 
   const result = await db.insert(media).values({
     filename: key.split("/").pop()!,
@@ -62,6 +80,8 @@ export async function createMedia(db: Database, input: UploadInput): Promise<Med
     height,
     path: stored.key,
     url: stored.url,
+    thumbnailPath,
+    thumbnailUrl,
     altText: input.altText?.slice(0, 255),
     uploadedById: input.uploadedById,
   });
@@ -77,17 +97,28 @@ export async function getMedia(db: Database, id: number): Promise<MediaRow | und
 
 export async function listMedia(
   db: Database,
-  opts: { limit?: number; offset?: number } = {},
+  opts: { limit?: number; offset?: number; type?: "image" | "document"; search?: string } = {},
 ): Promise<{ items: MediaRow[]; total: number }> {
   const limit = Math.min(opts.limit ?? 50, 100);
   const offset = opts.offset ?? 0;
+
+  const conds = [];
+  if (opts.type === "image") conds.push(like(media.mimeType, "image/%"));
+  else if (opts.type === "document") conds.push(sql`${media.mimeType} not like 'image/%'`);
+  if (opts.search) {
+    const q = `%${opts.search}%`;
+    conds.push(or(like(media.originalName, q), like(media.filename, q))!);
+  }
+  const where = conds.length ? and(...conds) : undefined;
+
   const items = await db
     .select()
     .from(media)
+    .where(where)
     .orderBy(desc(media.createdAt))
     .limit(limit)
     .offset(offset);
-  const total = Number((await db.select({ c: sql<number>`count(*)` }).from(media))[0]?.c ?? 0);
+  const total = Number((await db.select({ c: sql<number>`count(*)` }).from(media).where(where))[0]?.c ?? 0);
   return { items, total };
 }
 
@@ -99,5 +130,6 @@ export async function deleteMedia(db: Database, id: number): Promise<void> {
   const row = await getMedia(db, id);
   if (!row) throw new MediaError("NOT_FOUND", "Media not found");
   await getStorage().delete(row.path);
+  if (row.thumbnailPath) await getStorage().delete(row.thumbnailPath).catch(() => {});
   await db.delete(media).where(eq(media.id, id));
 }

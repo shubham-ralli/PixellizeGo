@@ -46,6 +46,7 @@ function serializeData(data: unknown): string {
 export interface RenderInject {
   headExtra?: string; // extra tags for <head> (e.g. admin-bar CSS)
   bodyTop?: string; // markup injected before #app (e.g. admin-bar, injected by the server)
+  bodyClass?: string; // WordPress-style classes for the <body> element
 }
 
 /** Render a page: inject SEO head, SSR body HTML, and hydration data into the template. */
@@ -61,6 +62,7 @@ export async function renderPage(
   const dataScript = `<script>window.__PAGE__=${serializeData(ctx)}</script>`;
   return template
     .replace("<!--app-head-->", headTags + (inject.headExtra ?? ""))
+    .replace("<body>", inject.bodyClass ? `<body class="${inject.bodyClass}">` : "<body>")
     .replace('<div id="app">', `${inject.bodyTop ?? ""}<div id="app">`)
     .replace("<!--app-html-->", html)
     .replace("<!--app-data-->", dataScript);

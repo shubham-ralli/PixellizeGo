@@ -3,11 +3,14 @@ import {
   autosavePost,
   bulkContent,
   createPost,
+  duplicatePost,
   forceDeletePost,
   getPost,
+  getRevision,
   listPosts,
   listRevisions,
   restorePost,
+  restoreRevision,
   trashPost,
   updatePost,
 } from "@pixellize/content";
@@ -123,6 +126,32 @@ export async function postRoutes(app: FastifyInstance): Promise<void> {
   app.get("/api/posts/:id/revisions", async (request) => {
     const id = Number((request.params as { id: string }).id);
     return listRevisions(app.db, id);
+  });
+
+  app.get("/api/posts/:id/revisions/:revId", async (request, reply) => {
+    const rev = await getRevision(app.db, Number((request.params as { revId: string }).revId));
+    if (!rev) return reply.code(404).send({ error: "not_found", message: "Revision not found." });
+    return rev;
+  });
+
+  app.post("/api/posts/:id/revisions/:revId/restore", async (request, reply) => {
+    const { id, revId } = request.params as { id: string; revId: string };
+    try {
+      return await restoreRevision(app.db, Number(id), Number(revId), request.auth!.user.id);
+    } catch (err) {
+      if (handleContentError(err, reply)) return;
+      throw err;
+    }
+  });
+
+  app.post("/api/posts/:id/duplicate", async (request, reply) => {
+    try {
+      const dto = await duplicatePost(app.db, Number((request.params as { id: string }).id), request.auth!.user.id);
+      return reply.code(201).send(dto);
+    } catch (err) {
+      if (handleContentError(err, reply)) return;
+      throw err;
+    }
   });
 
   // Soft delete (move to trash)

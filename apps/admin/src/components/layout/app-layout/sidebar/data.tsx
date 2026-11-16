@@ -27,11 +27,17 @@ export const navItems: NavItem[] = [
     path: "/media",
   },
   {
+    icon: <PageIcon className="size-6" />,
+    key: "comments",
+    path: "/comments",
+  },
+  {
     icon: <PluginIcon className="size-6" />,
     key: "appearance",
     subItems: [
       { key: "menus", path: "/menus" },
       { key: "themes", path: "/themes" },
+      { key: "plugins", path: "/plugins" },
     ],
   },
   {
@@ -50,7 +56,10 @@ export const navItems: NavItem[] = [
   {
     icon: <GearIcon className="size-6" />,
     key: "settings",
-    path: "/settings",
+    subItems: [
+      { key: "generalSettings", path: "/settings" },
+      { key: "readingSettings", path: "/settings/reading" },
+    ],
   },
 ];
 

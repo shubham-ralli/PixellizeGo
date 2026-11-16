@@ -1,3 +1,4 @@
+import { MediaPicker } from "@/components/shared/media-picker";
 import { PageMeta } from "@/components/shared/page-meta";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,20 +23,21 @@ const SECTIONS: { title: string; fields: Field[] }[] = [
       { key: "adminEmail", label: "Admin Email", type: "email" },
     ],
   },
-  {
-    title: "Reading",
-    fields: [{ key: "postsPerPage", label: "Posts per page", type: "number" }],
-  },
 ];
+
+const BRANDING_KEYS = ["siteLogo", "siteIcon"];
 
 export default function SettingsPage() {
   const [values, setValues] = useState<Record<string, string>>({});
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [picker, setPicker] = useState<null | "siteLogo" | "siteIcon">(null);
 
   useEffect(() => {
     getSettings().then(setValues).catch((e) => setError(e.message));
   }, []);
+
+  const set = (key: string, value: string) => setValues((v) => ({ ...v, [key]: value }));
 
   const save = async () => {
     setStatus(null);
@@ -43,6 +45,7 @@ export default function SettingsPage() {
     try {
       const payload: Record<string, string> = {};
       for (const s of SECTIONS) for (const f of s.fields) payload[f.key] = values[f.key] ?? "";
+      for (const k of BRANDING_KEYS) payload[k] = values[k] ?? "";
       await saveSettings(payload);
       setStatus("Saved");
     } catch (e) {
@@ -68,6 +71,52 @@ export default function SettingsPage() {
       )}
 
       <div className="w-full space-y-6">
+        {/* Branding: logo + site icon (favicon) */}
+        <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/3">
+          <h2 className="mb-4 text-base font-semibold text-gray-800 dark:text-white/90">Branding</h2>
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Logo</label>
+              <div className="flex items-center gap-4">
+                <div className="flex h-16 w-32 items-center justify-center rounded-lg border border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-white/5">
+                  {values.siteLogo ? (
+                    <img src={values.siteLogo} alt="logo" className="max-h-14 max-w-[7rem] object-contain" />
+                  ) : (
+                    <span className="text-xs text-gray-400">No logo</span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={() => setPicker("siteLogo")}>Choose</Button>
+                  {values.siteLogo && (
+                    <Button size="sm" variant="outline" onClick={() => set("siteLogo", "")}>Remove</Button>
+                  )}
+                </div>
+              </div>
+              <p className="mt-1 text-xs text-gray-400">Shown in the site header instead of the title.</p>
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Site icon (favicon)</label>
+              <div className="flex items-center gap-4">
+                <div className="flex h-16 w-16 items-center justify-center rounded-lg border border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-white/5">
+                  {values.siteIcon ? (
+                    <img src={values.siteIcon} alt="icon" className="h-10 w-10 object-contain" />
+                  ) : (
+                    <span className="text-[10px] text-gray-400">None</span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={() => setPicker("siteIcon")}>Choose</Button>
+                  {values.siteIcon && (
+                    <Button size="sm" variant="outline" onClick={() => set("siteIcon", "")}>Remove</Button>
+                  )}
+                </div>
+              </div>
+              <p className="mt-1 text-xs text-gray-400">Appears in the browser tab. A square PNG works best.</p>
+            </div>
+          </div>
+        </div>
+
         {SECTIONS.map((section) => (
           <div key={section.title} className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/3">
             <h2 className="mb-4 text-base font-semibold text-gray-800 dark:text-white/90">{section.title}</h2>
@@ -79,7 +128,7 @@ export default function SettingsPage() {
                     type={f.type ?? "text"}
                     value={values[f.key] ?? ""}
                     placeholder={f.placeholder}
-                    onChange={(e) => setValues({ ...values, [f.key]: e.target.value })}
+                    onChange={(e) => set(f.key, e.target.value)}
                   />
                   {f.hint && <p className="mt-1 text-xs text-gray-400">{f.hint}</p>}
                 </div>
@@ -88,6 +137,14 @@ export default function SettingsPage() {
           </div>
         ))}
       </div>
+
+      <MediaPicker
+        open={picker !== null}
+        onClose={() => setPicker(null)}
+        onSelect={(m) => picker && set(picker, m.url)}
+        title={picker === "siteIcon" ? "Site icon" : "Logo"}
+        confirmLabel="Use image"
+      />
     </>
   );
 }

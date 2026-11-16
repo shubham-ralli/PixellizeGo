@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import {
   absoluteUrl,
   bulkPosts,
+  // duplicatePost, // kept for later — Duplicate button temporarily hidden
   forceDeletePost,
   listPosts,
   listPostTypes,
@@ -14,7 +15,7 @@ import {
   type PostTypeDef,
 } from "@/lib/cms-api";
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 
 const STATUS_STYLES: Record<PostStatus, string> = {
   published: "bg-green-50 text-green-600 dark:bg-green-500/10 dark:text-green-400",
@@ -25,6 +26,8 @@ const STATUS_STYLES: Record<PostStatus, string> = {
 export default function ContentListPage() {
   const { type = "post" } = useParams();
   const navigate = useNavigate();
+  const [sp, setSp] = useSearchParams();
+  const q = sp.get("q") ?? "";
   const [items, setItems] = useState<PostListItem[]>([]);
   const [postType, setPostType] = useState<PostTypeDef | null>(null);
   const [status, setStatus] = useState<PostStatus | "">("");
@@ -48,6 +51,7 @@ export default function ContentListPage() {
       const res = await listPosts({
         type,
         status: isTrash ? undefined : status || undefined,
+        search: q || undefined,
         trashed: isTrash,
         limit: 100,
       });
@@ -57,7 +61,7 @@ export default function ContentListPage() {
     } finally {
       setLoading(false);
     }
-  }, [type, status, isTrash]);
+  }, [type, status, isTrash, q]);
 
   useEffect(() => void load(), [load]);
 
@@ -113,6 +117,9 @@ export default function ContentListPage() {
             <>
               <Button size="xs" variant="outline" onClick={() => window.open(absoluteUrl(p.path), "_blank", "noopener")}>View</Button>
               <Button size="xs" variant="outline" onClick={() => navigate(`${base}/${p.id}/edit`)}>Edit</Button>
+              {/* Duplicate — hidden for now, kept for later:
+              <Button size="xs" variant="outline" onClick={() => rowAction(async () => { const d = await duplicatePost(p.id); navigate(`${base}/${d.id}/edit`); })}>Duplicate</Button>
+              */}
               <Button size="xs" variant="destructive" onClick={() => rowAction(() => trashPost(p.id))}>Trash</Button>
             </>
           )}
@@ -135,6 +142,17 @@ export default function ContentListPage() {
         <h1 className="text-title-sm font-semibold text-gray-800 dark:text-white/90">
           {label}
           {isTrash && <span className="ml-2 text-base font-normal text-gray-400">· Trash</span>}
+          {q && (
+            <span className="ml-2 text-base font-normal text-gray-400">
+              · Search “{q}”{" "}
+              <button
+                className="text-sm text-brand-500 hover:underline"
+                onClick={() => setSp((prev) => { prev.delete("q"); return prev; }, { replace: true })}
+              >
+                clear
+              </button>
+            </span>
+          )}
         </h1>
         {!isTrash && <Button onClick={() => navigate(`${base}/new`)}>+ New {singular}</Button>}
       </div>

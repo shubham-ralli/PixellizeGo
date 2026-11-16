@@ -11,9 +11,11 @@ import { healthRoutes } from "./routes/health.js";
 import { mediaRoutes } from "./routes/media.js";
 import { postRoutes } from "./routes/posts.js";
 import { postTypeRoutes } from "./routes/post-types.js";
+import { commentRoutes } from "./routes/comments.js";
 import { publicRoutes, render404 } from "./routes/public.js";
 import { taxonomyRoutes } from "./routes/taxonomy.js";
 import { themeRoutes } from "./routes/themes.js";
+import { pluginRoutes } from "./routes/plugins.js";
 import { userRoutes } from "./routes/users.js";
 import { registerAdminBarAssets } from "./admin-bar.js";
 import { registerAdminStatic, registerPublicAssets, registerUploads } from "./serve-static.js";
@@ -50,9 +52,11 @@ export async function buildApp(opts: BuildOptions = {}): Promise<FastifyInstance
   await app.register(dashboardRoutes);
   await app.register(postRoutes);
   await app.register(postTypeRoutes);
+  await app.register(commentRoutes);
   await app.register(taxonomyRoutes);
   await app.register(mediaRoutes);
   await app.register(themeRoutes);
+  await app.register(pluginRoutes);
   await app.register(userRoutes);
   await app.register(cronRoutes);
 

@@ -2,9 +2,14 @@ import {
   type PostDTO,
   getPostTypeByRoute,
   getPublishedByPath,
+  getPublishedById,
   getPublishedBySlug,
+  searchPublished,
+  listApprovedForPost,
   listPublishedByTerm,
   listPublishedForSitemap,
+  listPublishedForFeed,
+  countPublishedForSitemap,
   listPublishedPosts,
 } from "@pixellize/content";
 import {
@@ -14,7 +19,7 @@ import {
   SEO_SETTING_KEYS,
   SITE_SETTING_KEYS,
 } from "@pixellize/theme-engine";
-import { buildMeta, generateSitemap, renderMetaTags, robotsTxt } from "@pixellize/seo";
+import { breadcrumbJsonLd, buildMeta, generateRss, generateSitemap, generateSitemapIndex, renderMetaTags, robotsTxt } from "@pixellize/seo";
 import { validateSession } from "@pixellize/auth";
 import { env } from "@pixellize/core/env";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -23,9 +28,11 @@ import { frontendBuilt, notBuiltPage, renderPage } from "../frontend.js";
 
 interface AdminBar {
   user: string;
+  avatarUrl: string | null;
   dashboardUrl: string;
   newPostUrl: string;
   logoutUrl: string;
+  profileUrl: string;
   editUrl: string | null;
 }
 
@@ -42,11 +49,32 @@ interface MenuNode {
   children?: MenuNode[];
 }
 
+const PER_PAGE = 9;
+const pageOf = (q: unknown): number => {
+  const n = Number((q as { page?: string } | undefined)?.page);
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1;
+};
+/** Pagination metadata passed to the theme. `query` is extra querystring (e.g. "q=foo"). */
+function paginate(page: number, total: number, baseUrl: string, query = "", perPage = PER_PAGE) {
+  return { page, totalPages: Math.max(1, Math.ceil(total / perPage)), baseUrl, query };
+}
+
+interface ReadingSettings {
+  homepageType: string; // "posts" | "page"
+  homepagePageId: number | null;
+  postsPageId: number | null;
+  perPage: number;
+  feedItems: number;
+  feedType: string; // "full" | "excerpt"
+}
+
 interface BaseContext {
-  site: { title: string; tagline: string; baseUrl: string };
+  site: { title: string; tagline: string; baseUrl: string; logo: string; icon: string };
   menu: MenuNode[];
+  footerMenu: MenuNode[];
   themeSettings: Record<string, unknown>;
   seo: SeoDefaults;
+  reading: ReadingSettings;
   adminBar?: AdminBar;
 }
 
@@ -69,9 +97,11 @@ async function resolveAdminBar(app: FastifyInstance, req: FastifyRequest): Promi
   if (!session) return undefined;
   return {
     user: session.user.name,
+    avatarUrl: session.user.avatarUrl ?? null,
     dashboardUrl: "/admin",
     newPostUrl: "/admin/content/post/new",
     logoutUrl: "/admin/logout",
+    profileUrl: "/admin/profile",
     editUrl: null,
   };
 }
@@ -80,7 +110,10 @@ async function baseContext(app: FastifyInstance, req: FastifyRequest): Promise<B
   const settings = await getSettingsFor(app.db, [...SITE_SETTING_KEYS, ...SEO_SETTING_KEYS]);
   const proto = (req.headers["x-forwarded-proto"] as string) || req.protocol;
   const baseUrl = (settings.siteUrl || `${proto}://${req.headers.host}`).replace(/\/$/, "");
-  const menuRow = await getMenuByLocation(app.db, "primary");
+  const [menuRow, footerRow] = await Promise.all([
+    getMenuByLocation(app.db, "primary"),
+    getMenuByLocation(app.db, "footer"),
+  ]);
   const theme = await getActiveTheme(app.db);
   const adminBar = await resolveAdminBar(app, req);
   return {
@@ -88,8 +121,11 @@ async function baseContext(app: FastifyInstance, req: FastifyRequest): Promise<B
       title: settings.siteTitle || "Pixellize",
       tagline: settings.tagline || "",
       baseUrl,
+      logo: settings.siteLogo || "",
+      icon: settings.siteIcon || "",
     },
     menu: mapMenu(menuRow?.items ?? []),
+    footerMenu: mapMenu(footerRow?.items ?? []),
     themeSettings: (theme?.settings as Record<string, unknown>) ?? {},
     seo: {
       description: settings.seoMetaDescription || undefined,
@@ -97,8 +133,37 @@ async function baseContext(app: FastifyInstance, req: FastifyRequest): Promise<B
       separator: settings.seoTitleSeparator || "—",
       robots: settings.seoNoindex === "true" ? "noindex,nofollow" : undefined,
     },
+    reading: {
+      homepageType: settings.homepageType || "posts",
+      homepagePageId: settings.homepagePageId ? Number(settings.homepagePageId) : null,
+      postsPageId: settings.postsPageId ? Number(settings.postsPageId) : null,
+      perPage: Math.min(Math.max(Number(settings.postsPerPage) || 9, 1), 50),
+      feedItems: Math.min(Math.max(Number(settings.feedItems) || 10, 1), 50),
+      feedType: settings.feedType || "excerpt",
+    },
     ...(adminBar ? { adminBar } : {}),
   };
+}
+
+/** WordPress-style <body> classes based on the view and current post/page. */
+function bodyClassFor(ctx: Record<string, unknown>): string {
+  const view = ctx.view as string;
+  const post = ctx.post as { id: number; type: string; slug: string } | undefined;
+  const c: string[] = [];
+  if (view === "home") c.push("home");
+  else if (view === "search") c.push("search", "search-results");
+  else if (view === "archive") c.push("archive");
+  else if (view === "notfound") c.push("error404");
+  else if (view === "page" && post) {
+    // Pages: `page page-id-123 page-template-default type-page`
+    c.push("page", `page-id-${post.id}`, "page-template-default", `type-page`, `page-${post.slug}`);
+  } else if (view === "single" && post) {
+    // Posts & custom types: `single single-post type-post post-id-123`
+    c.push("single", `single-${post.type}`, `type-${post.type}`, `${post.type}-id-${post.id}`, `${post.type}-${post.slug}`);
+    if (post.type === "post") c.push("post");
+  }
+  // sanitize to valid class tokens
+  return c.join(" ").replace(/[^a-zA-Z0-9_ -]/g, "-");
 }
 
 async function send(
@@ -115,33 +180,45 @@ async function send(
   if (!frontendBuilt()) {
     return reply.code(status).type("text/html").send(notBuiltPage());
   }
+  // A custom site icon (favicon) set in Settings is injected into every page head.
+  const icon = (ctx.site as { icon?: string } | undefined)?.icon;
+  const headWithIcon = icon ? `${head}\n    <link rel="icon" href="${icon.replace(/"/g, "&quot;")}" />` : head;
   const inject = ctx.adminBar ? renderAdminBarInjection(ctx.adminBar as AdminBarData) : {};
-  const html = await renderPage(ctx, head, inject);
+  const html = await renderPage(ctx, headWithIcon, { ...inject, bodyClass: bodyClassFor(ctx) });
   return reply.code(status).type("text/html").send(html ?? notBuiltPage());
 }
 
 /** Render a single post/page. Canonical + edit URL come from the post's own path. */
 async function renderSingle(
+  app: FastifyInstance,
   req: FastifyRequest,
   reply: FastifyReply,
   base: BaseContext,
   post: PostDTO,
   view: "single" | "page",
 ) {
-  const head = renderMetaTags(
-    buildMeta({
-      pageTitle: post.title,
-      siteTitle: base.site.title,
-      description: post.excerpt ?? base.seo.description,
-      image: post.featuredMedia?.url ? base.site.baseUrl + post.featuredMedia.url : base.seo.ogImage,
-      canonical: base.site.baseUrl + post.path,
-      meta: post.meta,
-      ...(view === "single" ? { ogType: "article" as const } : {}),
-      separator: base.seo.separator,
-      robots: base.seo.robots,
-      category: post.terms.find((t) => t.taxonomy === "category")?.name,
-    }),
-  );
+  const comments = await listApprovedForPost(app.db, post.id);
+  const cat = post.terms.find((t) => t.taxonomy === "category");
+  const crumbs = [{ name: "Home", url: base.site.baseUrl + "/" }];
+  if (view === "single" && cat) crumbs.push({ name: cat.name, url: `${base.site.baseUrl}/${cat.route}/${cat.slug}` });
+  crumbs.push({ name: post.title, url: base.site.baseUrl + post.path });
+  const head =
+    renderMetaTags(
+      buildMeta({
+        pageTitle: post.title,
+        siteTitle: base.site.title,
+        description: post.excerpt ?? base.seo.description,
+        image: post.featuredMedia?.url ? base.site.baseUrl + post.featuredMedia.url : base.seo.ogImage,
+        canonical: base.site.baseUrl + post.path,
+        meta: post.meta,
+        ...(view === "single" ? { ogType: "article" as const } : {}),
+        separator: base.seo.separator,
+        robots: base.seo.robots,
+        category: cat?.name,
+      }),
+    ) +
+    "\n    " +
+    breadcrumbJsonLd(crumbs);
   return send(
     req,
     reply,
@@ -153,6 +230,7 @@ async function renderSingle(
         ? { adminBar: { ...base.adminBar, editUrl: `/admin/content/${post.type}/${post.id}/edit` } }
         : {}),
       post,
+      comments,
     },
     head,
   );
@@ -162,7 +240,28 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
   // Home
   app.get("/", async (req, reply) => {
     const base = await baseContext(app, req);
-    const { items } = await listPublishedPosts(app.db, { limit: 12 });
+
+    // Reading settings: a static page as the homepage, or the latest-posts feed.
+    if (base.reading.homepageType === "page" && base.reading.homepagePageId) {
+      const home = await getPublishedById(app.db, base.reading.homepagePageId);
+      if (home) {
+        const head = renderMetaTags(
+          buildMeta({
+            pageTitle: base.site.title,
+            tagline: base.site.tagline,
+            description: home.excerpt ?? base.seo.description,
+            image: home.featuredMedia?.url ? base.site.baseUrl + home.featuredMedia.url : base.seo.ogImage,
+            canonical: base.site.baseUrl + "/",
+            robots: base.seo.robots,
+          }),
+        );
+        return send(req, reply, { view: "page", title: base.site.title, ...base, post: home }, head);
+      }
+    }
+
+    const perPage = base.reading.perPage;
+    const page = pageOf(req.query);
+    const { items, total } = await listPublishedPosts(app.db, { limit: perPage, offset: (page - 1) * perPage });
     const head = renderMetaTags(
       buildMeta({
         pageTitle: base.site.tagline ? `${base.site.title} — ${base.site.tagline}` : base.site.title,
@@ -173,7 +272,12 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
         robots: base.seo.robots,
       }),
     );
-    return send(req, reply, { view: "home", title: base.site.title, ...base, posts: items }, head);
+    return send(
+      req,
+      reply,
+      { view: "home", title: base.site.title, ...base, posts: items, page, pagination: paginate(page, total, "/", "", perPage) },
+      head,
+    );
   });
 
   // Two-segment URLs are generic: /:route/:slug resolves to a single post of a
@@ -188,44 +292,130 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
     if (postType) {
       const post = await getPublishedBySlug(app.db, postType.slug, slug);
       if (!post) return render404(app, req, reply);
-      return renderSingle(req, reply, base, post, "single");
+      return renderSingle(app, req, reply, base, post, "single");
     }
 
     // 2) Taxonomy archive at this route (category, tag, topic, …).
-    const result = await listPublishedByTerm(app.db, route, slug);
+    const perPage = base.reading.perPage;
+    const page = pageOf(req.query);
+    const result = await listPublishedByTerm(app.db, route, slug, {
+      limit: perPage,
+      offset: (page - 1) * perPage,
+    });
     if (!result) {
       // 3) Nested page (e.g. /demo/page-1): a child page under a parent page.
       const nested = await getPublishedByPath(app.db, `/${route}/${slug}`);
-      if (nested) return renderSingle(req, reply, base, nested, "page");
+      if (nested) return renderSingle(app, req, reply, base, nested, "page");
       return render404(app, req, reply);
     }
-    const head = renderMetaTags(
-      buildMeta({
-        pageTitle: result.term.name,
-        siteTitle: base.site.title,
-        description: base.seo.description,
-        canonical: `${base.site.baseUrl}/${route}/${result.term.slug}`,
-        separator: base.seo.separator,
-        robots: base.seo.robots,
-      }),
-    );
+    const head =
+      renderMetaTags(
+        buildMeta({
+          pageTitle: result.term.name,
+          siteTitle: base.site.title,
+          description: base.seo.description,
+          canonical: `${base.site.baseUrl}/${route}/${result.term.slug}`,
+          separator: base.seo.separator,
+          robots: base.seo.robots,
+        }),
+      ) +
+      "\n    " +
+      breadcrumbJsonLd([
+        { name: "Home", url: base.site.baseUrl + "/" },
+        { name: result.term.name, url: `${base.site.baseUrl}/${route}/${result.term.slug}` },
+      ]);
     return send(req, reply, {
       view: "archive",
       title: result.term.name,
       ...base,
       posts: result.items,
       archive: { label: result.taxonomyLabel, name: result.term.name, slug: result.term.slug },
+      pagination: paginate(page, result.total, `/${route}/${result.term.slug}`, "", perPage),
     }, head);
   });
 
-  // sitemap + robots
+  // Search results (static route — matched before the /:slug page catch-all).
+  app.get("/search", async (req, reply) => {
+    const base = await baseContext(app, req);
+    const query = String((req.query as { q?: string }).q ?? "").slice(0, 120);
+    const perPage = base.reading.perPage;
+    const page = pageOf(req.query);
+    const { items, total } = query
+      ? await searchPublished(app.db, query, { limit: perPage, offset: (page - 1) * perPage })
+      : { items: [], total: 0 };
+    const head = renderMetaTags(
+      buildMeta({
+        pageTitle: query ? `Search: ${query}` : "Search",
+        siteTitle: base.site.title,
+        canonical: `${base.site.baseUrl}/search`,
+        separator: base.seo.separator,
+        meta: { robots: "noindex" },
+      }),
+    );
+    return send(
+      req,
+      reply,
+      {
+        view: "search",
+        title: "Search",
+        ...base,
+        posts: items,
+        searchQuery: query,
+        pagination: paginate(page, total, "/search", `q=${encodeURIComponent(query)}`, perPage),
+      },
+      head,
+    );
+  });
+
+  // RSS feed — item count + full/excerpt controlled by Reading settings.
+  app.get("/feed.xml", async (req, reply) => {
+    const base = await baseContext(app, req);
+    const rows = await listPublishedForFeed(app.db, base.reading.feedItems);
+    const items = rows.map((r) => ({
+      title: r.title,
+      link: `${base.site.baseUrl}/blog/${r.slug}`,
+      description: base.reading.feedType === "full" ? r.content ?? "" : r.excerpt ?? "",
+      author: r.authorName ?? undefined,
+      pubDate: r.publishedAt ?? undefined,
+    }));
+    const xml = generateRss(
+      { title: base.site.title, link: base.site.baseUrl + "/", description: base.site.tagline || base.site.title },
+      items,
+    );
+    return reply.type("application/rss+xml").send(xml);
+  });
+
+  // sitemap: an index of paginated sub-sitemaps once the site grows past SITEMAP_PAGE URLs.
+  const SITEMAP_PAGE = 1000;
+
   app.get("/sitemap.xml", async (req, reply) => {
     const base = await baseContext(app, req);
-    const entries = (await listPublishedForSitemap(app.db)).map((e) => ({
+    const total = await countPublishedForSitemap(app.db);
+    // Small site → one sitemap with everything (plus the home page).
+    if (total <= SITEMAP_PAGE) {
+      const entries = (await listPublishedForSitemap(app.db)).map((e) => ({
+        loc: `${base.site.baseUrl}${e.route ? `/${e.route}` : ""}/${e.slug}`,
+        lastmod: e.updatedAt,
+      }));
+      entries.unshift({ loc: `${base.site.baseUrl}/`, lastmod: new Date().toISOString() });
+      return reply.type("application/xml").send(generateSitemap(entries));
+    }
+    // Large site → a sitemap index.
+    const pages = Math.ceil(total / SITEMAP_PAGE);
+    const sitemaps = Array.from({ length: pages }, (_, i) => ({ loc: `${base.site.baseUrl}/sitemap-${i + 1}.xml` }));
+    return reply.type("application/xml").send(generateSitemapIndex(sitemaps));
+  });
+
+  app.get("/sitemap-:n.xml", async (req, reply) => {
+    const base = await baseContext(app, req);
+    const n = Math.max(1, Number((req.params as { n: string }).n) || 1);
+    const rows = await listPublishedForSitemap(app.db, { limit: SITEMAP_PAGE, offset: (n - 1) * SITEMAP_PAGE });
+    if (rows.length === 0) return render404(app, req, reply);
+    const entries = rows.map((e) => ({
       loc: `${base.site.baseUrl}${e.route ? `/${e.route}` : ""}/${e.slug}`,
       lastmod: e.updatedAt,
     }));
-    entries.unshift({ loc: `${base.site.baseUrl}/`, lastmod: new Date().toISOString() });
+    if (n === 1) entries.unshift({ loc: `${base.site.baseUrl}/`, lastmod: new Date().toISOString() });
     return reply.type("application/xml").send(generateSitemap(entries));
   });
 
@@ -243,7 +433,32 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
     const post = await getPublishedBySlug(app.db, rootType.slug, slug);
     // A child page's canonical URL is nested (/parent/child), so the bare slug 404s.
     if (!post || post.parentId) return render404(app, req, reply);
-    return renderSingle(req, reply, base, post, "page");
+
+    // If this page is the configured "posts page", render the blog feed at its URL.
+    if (base.reading.postsPageId && post.id === base.reading.postsPageId) {
+      const perPage = base.reading.perPage;
+      const page = pageOf(req.query);
+      const { items, total } = await listPublishedPosts(app.db, { limit: perPage, offset: (page - 1) * perPage });
+      const head = renderMetaTags(
+        buildMeta({
+          pageTitle: post.title,
+          siteTitle: base.site.title,
+          canonical: `${base.site.baseUrl}/${post.slug}`,
+          separator: base.seo.separator,
+          robots: base.seo.robots,
+        }),
+      );
+      return send(req, reply, {
+        view: "archive",
+        title: post.title,
+        ...base,
+        posts: items,
+        archive: { label: "Blog", name: post.title, slug: post.slug },
+        pagination: paginate(page, total, `/${post.slug}`, "", perPage),
+      }, head);
+    }
+
+    return renderSingle(app, req, reply, base, post, "page");
   });
 
   // Deep nested pages (3+ segments, e.g. /a/b/c) resolve by full path.
@@ -252,7 +467,7 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
     const path = (req.params as { "*": string })["*"];
     const post = await getPublishedByPath(app.db, `/${path}`);
     if (!post) return render404(app, req, reply);
-    return renderSingle(req, reply, base, post, "page");
+    return renderSingle(app, req, reply, base, post, "page");
   });
 }
 

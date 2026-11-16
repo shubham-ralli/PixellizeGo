@@ -1,12 +1,15 @@
-import type { ListItemView } from "../../types";
+import type { ListItemView, Pagination as PaginationData } from "../../types";
+import { Pagination } from "./Pagination";
 import { formatDate } from "./date";
 
 export function Archive({
   archive,
   posts,
+  pagination,
 }: {
   archive: { label: string; name: string; slug: string };
   posts: ListItemView[];
+  pagination?: PaginationData;
 }) {
   return (
     <>
@@ -40,6 +43,8 @@ export function Archive({
           ))}
         </div>
       )}
+
+      {pagination && <Pagination data={pagination} />}
     </>
   );
 }

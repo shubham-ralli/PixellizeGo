@@ -1,9 +1,11 @@
-export type View = "home" | "single" | "page" | "archive" | "notfound";
+export type View = "home" | "single" | "page" | "archive" | "search" | "notfound";
 
 export interface SiteInfo {
   title: string;
   tagline: string;
   baseUrl: string;
+  logo?: string;
+  icon?: string;
 }
 
 export interface MenuLink {
@@ -35,6 +37,16 @@ export interface ListItemView {
   publishedAt: string | null;
 }
 
+export interface CommentView {
+  id: number;
+  parentId: number | null;
+  authorName: string;
+  authorUrl: string | null;
+  content: string;
+  isStaff: boolean;
+  createdAt: string;
+}
+
 export interface AdminBar {
   user: string;
   dashboardUrl: string;
@@ -49,8 +61,20 @@ export interface PageContext {
   adminBar?: AdminBar;
   site: SiteInfo;
   menu: MenuLink[];
+  footerMenu?: MenuLink[];
   themeSettings: Record<string, unknown>;
   post?: PostView;
   posts?: ListItemView[];
+  comments?: CommentView[];
   archive?: { label: string; name: string; slug: string };
+  searchQuery?: string;
+  page?: number;
+  pagination?: Pagination;
+}
+
+export interface Pagination {
+  page: number;
+  totalPages: number;
+  baseUrl: string;
+  query?: string; // extra querystring, e.g. "q=foo"
 }

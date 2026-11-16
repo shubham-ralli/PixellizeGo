@@ -112,9 +112,11 @@ export function DataTable<T>({
           {search && (
             <div className="ml-auto">
               <Input
+                type="search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={searchPlaceholder}
+                aria-label={searchPlaceholder}
                 className="h-10 w-64 max-w-full"
               />
             </div>

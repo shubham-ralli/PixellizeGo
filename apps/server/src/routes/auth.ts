@@ -23,8 +23,10 @@ const loginSchema = z.object({
   password: z.string().min(1).max(200),
 });
 
-// Stricter limit for credential endpoints to slow brute force.
-const authLimit = { rateLimit: { max: 10, timeWindow: "1 minute" } } as const;
+// Stricter limit for credential endpoints to slow brute force (relaxed under test).
+const authLimit = {
+  rateLimit: { max: env.NODE_ENV === "test" ? 100000 : 10, timeWindow: "1 minute" },
+} as const;
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   // Tells the admin UI whether to show first-run registration or the login form.

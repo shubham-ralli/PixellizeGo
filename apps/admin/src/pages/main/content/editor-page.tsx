@@ -10,14 +10,18 @@ import {
   createPost,
   createTerm,
   getPost,
+  getRevision,
   listPostTypes,
   listPosts,
+  listRevisions,
   listTaxonomies,
   listTerms,
   type PostInput,
   type PostListItem,
   type PostStatus,
   type PostTypeDef,
+  type Revision,
+  restoreRevision,
   type Taxonomy,
   type Term,
   updatePost,
@@ -56,6 +60,10 @@ export default function ContentEditorPage() {
   const [error, setError] = useState<string | null>(null);
   const [autoStatus, setAutoStatus] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [revOpen, setRevOpen] = useState(false);
+  const [revisions, setRevisions] = useState<Revision[]>([]);
+  const [revView, setRevView] = useState<{ id: number; content: string | null } | null>(null);
   const dirty = useRef(false);
 
   useEffect(() => {
@@ -164,6 +172,19 @@ export default function ContentEditorPage() {
     setAutoStatus("Unsaved changes");
   };
 
+  // Close the preview / revisions dialogs with Escape.
+  useEffect(() => {
+    if (!previewOpen && !revOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setPreviewOpen(false);
+        setRevOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [previewOpen, revOpen]);
+
   const toggleTerm = (termId: number) => {
     setTermIds((prev) => (prev.includes(termId) ? prev.filter((x) => x !== termId) : [...prev, termId]));
     markDirty();
@@ -193,6 +214,34 @@ export default function ContentEditorPage() {
     }
   };
 
+  const openRevisions = async () => {
+    if (!id) return;
+    setRevView(null);
+    setRevOpen(true);
+    try {
+      setRevisions(await listRevisions(Number(id)));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load revisions");
+    }
+  };
+  const viewRevision = async (revId: number) => {
+    if (!id) return;
+    const r = await getRevision(Number(id), revId);
+    setRevView({ id: r.id, content: r.content });
+  };
+  const doRestore = async (revId: number) => {
+    if (!id || !window.confirm("Restore this revision? Current content becomes a new revision.")) return;
+    try {
+      const p = await restoreRevision(Number(id), revId);
+      setTitle(p.title);
+      setContent(p.content ?? "");
+      setRevOpen(false);
+      setAutoStatus("Restored revision");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Restore failed");
+    }
+  };
+
   return (
     <>
       <PageMeta title={`${isEdit ? "Edit" : "New"} ${typeLabel} | Pixellize CMS`} description="" />
@@ -208,12 +257,16 @@ export default function ContentEditorPage() {
         </div>
         <div className="flex items-center gap-3">
           <span className="text-xs text-gray-400">{autoStatus}</span>
-          {isEdit && slug && (
+          {isEdit && (
+            <Button variant="outline" onClick={openRevisions}>Revisions</Button>
+          )}
+          <Button variant="outline" onClick={() => setPreviewOpen(true)}>Preview</Button>
+          {isEdit && slug && status === "published" && (
             <Button
               variant="outline"
               onClick={() => window.open(absoluteUrl(computedPath), "_blank", "noopener")}
             >
-              Preview
+              View live
             </Button>
           )}
           <Button variant="outline" disabled={saving} onClick={() => save("draft")}>
@@ -440,6 +493,60 @@ export default function ContentEditorPage() {
         title="Featured image"
         confirmLabel="Set featured image"
       />
+
+      {/* Unsaved-draft preview */}
+      {previewOpen && (
+        <div className="fixed inset-0 z-[99999] flex flex-col bg-black/50 p-4 sm:p-10" onClick={() => setPreviewOpen(false)}>
+          <div role="dialog" aria-modal="true" aria-label="Draft preview" className="mx-auto flex h-full w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white dark:bg-gray-900" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-gray-200 px-5 py-3 dark:border-gray-800">
+              <span className="text-sm font-medium text-gray-500">Preview (unsaved)</span>
+              <Button size="xs" variant="outline" onClick={() => setPreviewOpen(false)}>Close</Button>
+            </div>
+            <div className="overflow-auto px-6 py-8">
+              <h1 className="mb-4 text-2xl font-bold text-gray-900 dark:text-white">{title || "Untitled"}</h1>
+              <div className="prose prose-sm max-w-none dark:prose-invert" dangerouslySetInnerHTML={{ __html: content || "<p class='text-gray-400'>Nothing to preview yet.</p>" }} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Revisions */}
+      {revOpen && (
+        <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/50 p-4" onClick={() => setRevOpen(false)}>
+          <div role="dialog" aria-modal="true" aria-label="Revisions" className="flex h-[80vh] w-full max-w-3xl overflow-hidden rounded-2xl bg-white dark:bg-gray-900" onClick={(e) => e.stopPropagation()}>
+            <div className="w-64 shrink-0 overflow-auto border-r border-gray-200 dark:border-gray-800">
+              <div className="border-b border-gray-200 px-4 py-3 text-sm font-semibold text-gray-700 dark:border-gray-800 dark:text-gray-200">Revisions</div>
+              {revisions.length === 0 && <p className="px-4 py-3 text-sm text-gray-400">No revisions.</p>}
+              {revisions.map((r) => (
+                <button
+                  key={r.id}
+                  onClick={() => viewRevision(r.id)}
+                  className={`block w-full border-b border-gray-100 px-4 py-2.5 text-left dark:border-gray-800/60 ${revView?.id === r.id ? "bg-brand-50 dark:bg-brand-500/10" : ""}`}
+                >
+                  <p className="truncate text-sm text-gray-700 dark:text-gray-200">{r.title}</p>
+                  <p className="text-xs text-gray-400">{r.kind} · {new Date(r.createdAt).toLocaleString()}</p>
+                </button>
+              ))}
+            </div>
+            <div className="flex flex-1 flex-col">
+              <div className="flex items-center justify-between border-b border-gray-200 px-5 py-3 dark:border-gray-800">
+                <span className="text-sm font-medium text-gray-500">{revView ? "Revision preview" : "Select a revision"}</span>
+                <div className="flex gap-2">
+                  {revView && <Button size="xs" onClick={() => doRestore(revView.id)}>Restore this</Button>}
+                  <Button size="xs" variant="outline" onClick={() => setRevOpen(false)}>Close</Button>
+                </div>
+              </div>
+              <div className="overflow-auto px-6 py-6">
+                {revView ? (
+                  <div className="prose prose-sm max-w-none dark:prose-invert" dangerouslySetInnerHTML={{ __html: revView.content ?? "<p class='text-gray-400'>Empty.</p>" }} />
+                ) : (
+                  <p className="text-sm text-gray-400">Pick a revision on the left to preview and restore it.</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

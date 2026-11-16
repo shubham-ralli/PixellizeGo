@@ -97,6 +97,8 @@ export const media = mysqlTable(
     height: int("height"),
     path: varchar("path", { length: 512 }).notNull(),
     url: varchar("url", { length: 512 }).notNull(),
+    thumbnailPath: varchar("thumbnail_path", { length: 512 }),
+    thumbnailUrl: varchar("thumbnail_url", { length: 512 }),
     altText: varchar("alt_text", { length: 255 }),
     uploadedById: int("uploaded_by_id").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -229,12 +231,38 @@ export const postTerms = mysqlTable(
   (t) => [primaryKey({ columns: [t.postId, t.termId] }), index("post_terms_term_idx").on(t.termId)],
 );
 
+// Visitor comments on posts. New comments start as "pending" and only
+// "approved" ones render publicly.
+export const comments = mysqlTable(
+  "comments",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    postId: int("post_id")
+      .notNull()
+      .references(() => posts.id, { onDelete: "cascade" }),
+    parentId: int("parent_id"), // threaded replies (e.g. an admin replying to a comment)
+    authorName: varchar("author_name", { length: 120 }).notNull(),
+    authorEmail: varchar("author_email", { length: 190 }).notNull(),
+    authorUrl: varchar("author_url", { length: 200 }),
+    content: text("content").notNull(),
+    isStaff: boolean("is_staff").default(false).notNull(), // reply posted by a logged-in admin
+    status: mysqlEnum("status", ["pending", "approved", "spam", "trash"]).default("pending").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [index("comments_post_idx").on(t.postId), index("comments_status_idx").on(t.status)],
+);
+
+export const commentsRelations = relations(comments, ({ one }) => ({
+  post: one(posts, { fields: [comments.postId], references: [posts.id] }),
+}));
+
 export const postsRelations = relations(posts, ({ one, many }) => ({
   author: one(users, { fields: [posts.authorId], references: [users.id] }),
   featuredMedia: one(media, { fields: [posts.featuredMediaId], references: [media.id] }),
   meta: many(postMeta),
   revisions: many(revisions),
   postTerms: many(postTerms),
+  comments: many(comments),
 }));
 
 export const postMetaRelations = relations(postMeta, ({ one }) => ({
@@ -257,6 +285,7 @@ export type NewPostRow = typeof posts.$inferInsert;
 export type PostMetaRow = typeof postMeta.$inferSelect;
 export type RevisionRow = typeof revisions.$inferSelect;
 export type PostTypeRow = typeof postTypes.$inferSelect;
+export type CommentRow = typeof comments.$inferSelect;
 export type TaxonomyRow = typeof taxonomies.$inferSelect;
 export type TermRow = typeof terms.$inferSelect;
 
@@ -278,6 +307,23 @@ export const themes = mysqlTable(
   },
   (t) => [uniqueIndex("themes_slug_unq").on(t.slug)],
 );
+
+// Installed plugins. Unlike themes, several can be active at once.
+export const plugins = mysqlTable(
+  "plugins",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    slug: varchar("slug", { length: 120 }).notNull(),
+    name: varchar("name", { length: 150 }).notNull(),
+    version: varchar("version", { length: 40 }).default("1.0.0").notNull(),
+    description: varchar("description", { length: 255 }),
+    author: varchar("author", { length: 150 }),
+    isActive: boolean("is_active").default(false).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("plugins_slug_unq").on(t.slug)],
+);
+export type PluginRow = typeof plugins.$inferSelect;
 
 export interface MenuItem {
   label: string;

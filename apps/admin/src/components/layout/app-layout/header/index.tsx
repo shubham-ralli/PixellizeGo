@@ -14,13 +14,21 @@ import { useTranslations } from "@/i18n";
 import { HorizontalDotsIcon, MenuTwoIcon, SearchIcon, XIcon } from "@/icons";
 import { cn } from "@/utils";
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 
 export default function AppHeader() {
   const t = useTranslations("header");
+  const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
+  const [query, setQuery] = useState("");
   const [isApplicationMenuOpen, setApplicationMenuOpen] = useState(false);
   const { openMobile, toggleSidebar } = useSidebar();
+
+  const submitSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = query.trim();
+    if (q) navigate(`/content/post?q=${encodeURIComponent(q)}`);
+  };
 
   const toggleApplicationMenu = () => {
     setApplicationMenuOpen(!isApplicationMenuOpen);
@@ -76,7 +84,7 @@ export default function AppHeader() {
           </Button>
 
           <div className="hidden xl:block">
-            <form onSubmit={(e) => e.preventDefault()}>
+            <form onSubmit={submitSearch}>
               <Field className="xl:w-107.5">
                 <InputGroup className="border-gray-200 bg-transparent dark:border-gray-800 dark:bg-white/3">
                   <InputGroupAddon align="inline-start">
@@ -84,7 +92,10 @@ export default function AppHeader() {
                   </InputGroupAddon>
                   <InputGroupInput
                     ref={inputRef}
-                    type="text"
+                    type="search"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    aria-label={t("searchPlaceholder")}
                     placeholder={t("searchPlaceholder")}
                     className="text-gray-800 placeholder:text-gray-400 dark:text-white/90 dark:placeholder:text-white/30"
                   />

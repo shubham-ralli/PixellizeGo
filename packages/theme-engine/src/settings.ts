@@ -1,7 +1,21 @@
 import { type Database, settings } from "@pixellize/database";
 import { inArray } from "drizzle-orm";
 
-export const SITE_SETTING_KEYS = ["siteTitle", "tagline", "siteUrl", "postsPerPage", "adminEmail"] as const;
+export const SITE_SETTING_KEYS = [
+  "siteTitle",
+  "tagline",
+  "siteUrl",
+  "postsPerPage",
+  "adminEmail",
+  "siteLogo",
+  "siteIcon",
+  // Reading
+  "homepageType",
+  "homepagePageId",
+  "postsPageId",
+  "feedItems",
+  "feedType",
+] as const;
 
 export const SEO_SETTING_KEYS = [
   "seoMetaDescription",
