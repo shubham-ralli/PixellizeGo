@@ -12,7 +12,7 @@ importers:
         specifier: ^5.7.3
         version: 5.9.3
 
-  apps/admin:
+  admin:
     dependencies:
       '@base-ui/react':
         specifier: ^1.8.0
@@ -214,7 +214,101 @@ importers:
         specifier: ^5.2.0
         version: 5.2.0(rollup@4.68.3)(typescript@6.0.3)(vite@8.3.8(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15))
 
-  apps/frontend:
+  includes/auth:
+    dependencies:
+      '@node-rs/argon2':
+        specifier: ^2.0.2
+        version: 2.2.2
+      '@pixellize/core':
+        specifier: workspace:*
+        version: link:../core
+      '@pixellize/database':
+        specifier: workspace:*
+        version: link:../database
+      drizzle-orm:
+        specifier: ^0.38.3
+        version: 0.38.4(@types/react@19.3.0)(mysql2@3.24.6(@types/node@22.20.5))(react@19.3.1)
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.5
+        version: 22.20.5
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.5)(lightningcss@1.33.0)
+
+  includes/content:
+    dependencies:
+      '@pixellize/core':
+        specifier: workspace:*
+        version: link:../core
+      '@pixellize/database':
+        specifier: workspace:*
+        version: link:../database
+      drizzle-orm:
+        specifier: ^0.38.3
+        version: 0.38.4(@types/react@19.3.0)(mysql2@3.24.6(@types/node@22.20.5))(react@19.3.1)
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.5
+        version: 22.20.5
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.5)(lightningcss@1.33.0)
+
+  includes/core:
+    dependencies:
+      dotenv:
+        specifier: ^16.4.7
+        version: 16.6.1
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.5
+        version: 22.20.5
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.5)(lightningcss@1.33.0)
+
+  includes/database:
+    dependencies:
+      '@pixellize/core':
+        specifier: workspace:*
+        version: link:../core
+      drizzle-orm:
+        specifier: ^0.38.3
+        version: 0.38.4(@types/react@19.3.0)(mysql2@3.24.6(@types/node@22.20.5))(react@19.3.1)
+      mysql2:
+        specifier: ^3.12.0
+        version: 3.24.6(@types/node@22.20.5)
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.5
+        version: 22.20.5
+      drizzle-kit:
+        specifier: ^0.30.1
+        version: 0.30.6
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.15
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.5)(lightningcss@1.33.0)
+
+  includes/frontend:
     dependencies:
       react:
         specifier: ^19.2.0
@@ -242,7 +336,47 @@ importers:
         specifier: ^6.0.7
         version: 6.4.6(@types/node@22.20.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)
 
-  apps/server:
+  includes/media:
+    dependencies:
+      '@pixellize/core':
+        specifier: workspace:*
+        version: link:../core
+      '@pixellize/database':
+        specifier: workspace:*
+        version: link:../database
+      '@pixellize/storage':
+        specifier: workspace:*
+        version: link:../storage
+      drizzle-orm:
+        specifier: ^0.38.3
+        version: 0.38.4(@types/react@19.3.0)(mysql2@3.24.6(@types/node@22.20.5))(react@19.3.1)
+      sharp:
+        specifier: ^0.33.5
+        version: 0.33.5
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.5
+        version: 22.20.5
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.5)(lightningcss@1.33.0)
+
+  includes/seo:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.5
+        version: 22.20.5
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.5)(lightningcss@1.33.0)
+
+  includes/server:
     dependencies:
       '@fastify/cookie':
         specifier: ^11.0.2
@@ -264,28 +398,28 @@ importers:
         version: 8.3.0
       '@pixellize/auth':
         specifier: workspace:*
-        version: link:../../packages/auth
+        version: link:../auth
       '@pixellize/content':
         specifier: workspace:*
-        version: link:../../packages/content
+        version: link:../content
       '@pixellize/core':
         specifier: workspace:*
-        version: link:../../packages/core
+        version: link:../core
       '@pixellize/database':
         specifier: workspace:*
-        version: link:../../packages/database
+        version: link:../database
       '@pixellize/media':
         specifier: workspace:*
-        version: link:../../packages/media
+        version: link:../media
       '@pixellize/seo':
         specifier: workspace:*
-        version: link:../../packages/seo
+        version: link:../seo
       '@pixellize/storage':
         specifier: workspace:*
-        version: link:../../packages/storage
+        version: link:../storage
       '@pixellize/theme-engine':
         specifier: workspace:*
-        version: link:../../packages/theme-engine
+        version: link:../theme-engine
       drizzle-orm:
         specifier: ^0.38.3
         version: 0.38.4(@types/react@19.3.0)(mysql2@3.24.6(@types/node@22.20.5))(react@19.3.1)
@@ -315,141 +449,7 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.5)(lightningcss@1.33.0)
 
-  packages/auth:
-    dependencies:
-      '@node-rs/argon2':
-        specifier: ^2.0.2
-        version: 2.2.2
-      '@pixellize/core':
-        specifier: workspace:*
-        version: link:../core
-      '@pixellize/database':
-        specifier: workspace:*
-        version: link:../database
-      drizzle-orm:
-        specifier: ^0.38.3
-        version: 0.38.4(@types/react@19.3.0)(mysql2@3.24.6(@types/node@22.20.5))(react@19.3.1)
-    devDependencies:
-      '@types/node':
-        specifier: ^22.10.5
-        version: 22.20.5
-      typescript:
-        specifier: ^5.7.3
-        version: 5.9.3
-      vitest:
-        specifier: ^2.1.8
-        version: 2.1.9(@types/node@22.20.5)(lightningcss@1.33.0)
-
-  packages/content:
-    dependencies:
-      '@pixellize/core':
-        specifier: workspace:*
-        version: link:../core
-      '@pixellize/database':
-        specifier: workspace:*
-        version: link:../database
-      drizzle-orm:
-        specifier: ^0.38.3
-        version: 0.38.4(@types/react@19.3.0)(mysql2@3.24.6(@types/node@22.20.5))(react@19.3.1)
-    devDependencies:
-      '@types/node':
-        specifier: ^22.10.5
-        version: 22.20.5
-      typescript:
-        specifier: ^5.7.3
-        version: 5.9.3
-      vitest:
-        specifier: ^2.1.8
-        version: 2.1.9(@types/node@22.20.5)(lightningcss@1.33.0)
-
-  packages/core:
-    dependencies:
-      dotenv:
-        specifier: ^16.4.7
-        version: 16.6.1
-      zod:
-        specifier: ^3.24.1
-        version: 3.25.76
-    devDependencies:
-      '@types/node':
-        specifier: ^22.10.5
-        version: 22.20.5
-      typescript:
-        specifier: ^5.7.3
-        version: 5.9.3
-      vitest:
-        specifier: ^2.1.8
-        version: 2.1.9(@types/node@22.20.5)(lightningcss@1.33.0)
-
-  packages/database:
-    dependencies:
-      '@pixellize/core':
-        specifier: workspace:*
-        version: link:../core
-      drizzle-orm:
-        specifier: ^0.38.3
-        version: 0.38.4(@types/react@19.3.0)(mysql2@3.24.6(@types/node@22.20.5))(react@19.3.1)
-      mysql2:
-        specifier: ^3.12.0
-        version: 3.24.6(@types/node@22.20.5)
-    devDependencies:
-      '@types/node':
-        specifier: ^22.10.5
-        version: 22.20.5
-      drizzle-kit:
-        specifier: ^0.30.1
-        version: 0.30.6
-      tsx:
-        specifier: ^4.19.2
-        version: 4.23.15
-      typescript:
-        specifier: ^5.7.3
-        version: 5.9.3
-      vitest:
-        specifier: ^2.1.8
-        version: 2.1.9(@types/node@22.20.5)(lightningcss@1.33.0)
-
-  packages/media:
-    dependencies:
-      '@pixellize/core':
-        specifier: workspace:*
-        version: link:../core
-      '@pixellize/database':
-        specifier: workspace:*
-        version: link:../database
-      '@pixellize/storage':
-        specifier: workspace:*
-        version: link:../storage
-      drizzle-orm:
-        specifier: ^0.38.3
-        version: 0.38.4(@types/react@19.3.0)(mysql2@3.24.6(@types/node@22.20.5))(react@19.3.1)
-      sharp:
-        specifier: ^0.33.5
-        version: 0.33.5
-    devDependencies:
-      '@types/node':
-        specifier: ^22.10.5
-        version: 22.20.5
-      typescript:
-        specifier: ^5.7.3
-        version: 5.9.3
-      vitest:
-        specifier: ^2.1.8
-        version: 2.1.9(@types/node@22.20.5)(lightningcss@1.33.0)
-
-  packages/seo:
-    devDependencies:
-      '@types/node':
-        specifier: ^22.10.5
-        version: 22.20.5
-      typescript:
-        specifier: ^5.7.3
-        version: 5.9.3
-      vitest:
-        specifier: ^2.1.8
-        version: 2.1.9(@types/node@22.20.5)(lightningcss@1.33.0)
-
-  packages/storage:
+  includes/storage:
     dependencies:
       '@pixellize/core':
         specifier: workspace:*
@@ -465,7 +465,7 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.5)(lightningcss@1.33.0)
 
-  packages/theme-engine:
+  includes/theme-engine:
     dependencies:
       '@pixellize/core':
         specifier: workspace:*

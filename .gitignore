@@ -17,7 +17,10 @@ apps/server/public/admin/
 apps/server/public/site/
 apps/server/ssr/
 
-# ---- Uploaded media / site content (user data, not source) ----
+# ---- Uploaded media / installed plugins (user data, not source) ----
+# content/themes IS committed (holds the default theme source); uploads + plugins are user data.
+content/uploads/
+content/plugins/
 uploads/
 apps/server/uploads/
 

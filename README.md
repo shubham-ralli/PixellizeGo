@@ -19,21 +19,27 @@ Runs on shared-hosting Node.js environments and VPS/cloud alike.
 
 ## Project layout
 
+WordPress-style layout: `admin/`, `content/`, `includes/` at the root.
+
 ```
 pixellize-cms/
-├── apps/
+├── admin/          React admin dashboard (TailAdmin), served at /admin   (like wp-admin)
+├── content/        User-side data (not core code)                        (like wp-content)
+│   ├── uploads/    Uploaded media (gitignored)
+│   ├── themes/     Themes — default theme source lives here
+│   └── plugins/    Installed plugins (gitignored)
+├── includes/       Core engine (all npm workspaces)                      (like wp-includes)
 │   ├── server/     Fastify: API + SSR public site + serves admin build (single process)
-│   ├── admin/      React admin dashboard (TailAdmin), served at /admin
-│   └── frontend/   React SSR public website + default theme
-├── packages/
+│   ├── frontend/   React SSR public website (compiles the active theme)
 │   ├── core/       Env config (zod) + shared types
 │   ├── database/   Drizzle schema, client, migrations, seed
-│   └── auth/       Argon2id hashing + session/user services (HTTP-independent)
+│   ├── auth/       Argon2id hashing + session/user services (HTTP-independent)
+│   └── content/ media/ seo/ storage/ theme-engine/
 └── .env            Environment configuration (copy from .env.example)
 ```
 
-> Phase 2+ packages (content, media, seo, theme-engine, plugin-engine, …) are
-> added when their phase begins — not pre-scaffolded.
+> `content/themes` is committed (default theme source); `content/uploads` and
+> `content/plugins` hold user data and are gitignored.
 
 ## Prerequisites
 
@@ -161,4 +167,4 @@ Cron for scheduled publishing (every 5 min):
 
 ## License
 
-See `apps/admin/LICENSE.md` for the admin template license (TailAdmin).
+See `admin/LICENSE.md` for the admin template license (TailAdmin).
